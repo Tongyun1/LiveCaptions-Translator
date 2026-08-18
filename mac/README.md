@@ -2,7 +2,12 @@
 
 把**电脑正在播放的声音**实时转成文字并翻译出来。看没有字幕的外语视频、听英文会议、刷油管的时候，屏幕上会浮出一条中文字幕。
 
-语音识别在你自己电脑上跑，音频不会上传。（但识别出的**文字**会发给翻译服务——默认是 Google，也可以在设置里改成你自己的接口。）
+识别有两种引擎可选：
+
+- **Whisper（默认）**：约 99 种语言全部在本机识别，音频不上传；首次使用要下载模型（最小 31MB）。
+- **macOS 系统语音识别**：不用下模型、延迟更低，但只有英文和中文能离线，其余语言会把音频传给苹果服务器。
+
+两种引擎识别出的**文字**都会发给翻译服务（默认 Google，可在设置里改成你自己的接口）。
 
 ---
 
@@ -87,6 +92,21 @@ dotnet run
 
 语音识别需要攒够一小段声音才能判断你在说什么，所以字幕会比声音慢大约 1～3 秒。这是这类技术的固有特性，不是卡了。
 
+换成系统语音识别引擎会快很多（几乎字字跟随）。
+
+### 换识别引擎
+
+点「设置」→「识别引擎」可以切换。
+
+**Whisper（默认）** 开箱可用，不需额外授权。
+
+**macOS 系统语音识别** 有两个额外要求：
+
+1. **必须以 `.app` 方式运行** —— `dotnet run` 拿不到系统授权。先执行 `./package-app.sh`，再打开 `mac/out/` 里生成的 App。
+2. 首次点「开始」会依次请求**麦克风**和**语音识别**权限，两个都要允许。
+
+另外它只在 Apple Silicon（M 系芯片）上能离线。
+
 ---
 
 ## 遇到问题？
@@ -94,6 +114,23 @@ dotnet run
 **听得到声音，但一直不出字幕**
 
 九成是系统输出没切对。点右上角音量图标确认一下，输出必须是你建的那个「**多输出设备**」，不能是「扬声器」或「BlackHole 2ch」单独一个。
+
+**启动失败：Unable to init device … NoDevice**
+
+没拿到**麦克风权限**。macOS 把从任何输入设备取声（包括 BlackHole 这类虚拟声卡）都归为麦克风权限。
+
+到「系统设置 → 隐私与安全性 → 麦克风」里允许本应用。如果列表里看不到它、或者开关已经开着却仍然报错，在终端执行下面两行后重新打开应用（会重新弹授权框）：
+
+```bash
+tccutil reset Microphone io.github.sakirinn.livecaptionstranslator.mac
+tccutil reset SpeechRecognition io.github.sakirinn.livecaptionstranslator.mac
+```
+
+这种情况多发生在**重新打包之后**：临时签名每次都会变，系统发现旧的授权记录对不上新签名，就既不放行也不弹框。
+
+**选了系统语音识别，报“需要以 .app 方式启动”**
+
+这个引擎要申请系统授权，而 macOS 按 App 身份发权限，`dotnet run` 这种跑法拿不到。执行 `./package-app.sh`，然后打开 `mac/out/` 里生成的 App。
 
 **下拉框里没有 BlackHole 2ch**
 
@@ -168,12 +205,14 @@ dotnet run
 
 ## 功能
 
-- ✅ 系统音频采集 + 本地离线语音识别（Whisper，Apple 芯片走 Metal 加速）
+- ✅ 系统音频采集（BlackHole + SoundFlow）
+- ✅ **两种识别引擎可切换**：Whisper（本地、约 99 种语言、Metal 加速）/ macOS 系统语音识别（免模型、低延迟）
 - ✅ 实时翻译：Google（免配置）/ OpenAI 兼容接口
 - ✅ 悬浮字幕窗：无边框、置顶、半透明、可拖动、可缩放；可浮在其它 App 的真全屏之上
 - ✅ 设置持久化：记住设备、引擎、目标语言、模型、OpenAI 配置
 - ✅ 翻译历史：SQLite 本地存储，支持搜索、分页、导出 CSV、清空
-- ⏳ 计划中：更多翻译引擎、`.app` 打包与签名
+- ✅ `.app` 打包脚本（依赖框架 / 自包含两种）
+- ⏳ 计划中：更多翻译引擎、Apple 证书签名与公证
 
 本目录完全独立，不依赖也不改动 Windows 版（`../src`）的代码。根目录的 `LiveCaptionsTranslator.csproj` 里有三行 `Remove="mac\**"`，用于把本目录从 Windows 项目的默认通配中排除。
 
@@ -182,9 +221,24 @@ dotnet run
 Windows 版借用系统「实时字幕」拿文字，macOS 没有该功能，因此本版本自己完成两步：
 
 1. **采集系统音频** → [SoundFlow](https://www.nuget.org/packages/SoundFlow)（底层 miniaudio / CoreAudio）从输入设备读 PCM，重采样为 16kHz 单声道。
-2. **本地语音识别** → [Whisper.net](https://www.nuget.org/packages/Whisper.net)（whisper.cpp）离线转文字，再送翻译引擎。
+2. **语音识别** → 两种实现，均实现 `ICaptionSource` 因而可互换：
+   - `WhisperCaptionSource`：[Whisper.net](https://www.nuget.org/packages/Whisper.net)（whisper.cpp）本地转文字。
+   - `AppleSpeechCaptionSource`：系统 `SFSpeechRecognizer`。
 
-悬浮窗要浮在别的 App 的全屏之上必须是 `NSPanel`，而 Avalonia 只创建 `NSWindow`。做法是运行时动态建一个 `NSPanel` 子类、把 Avalonia 的自定义窗口方法复制进去再换类，并在窗口销毁前还原原类（否则 KVO 注销会让进程 abort）。全部是纯 C# P/Invoke 调 Objective-C 运行时，无需 Swift/Xcode。见 `Utils/MacWindowInterop.cs`。
+### 悬浮窗浮于其它 App 的全屏之上
+
+必须是 `NSPanel`，而 Avalonia 只创建 `NSWindow`。做法是运行时动态建一个 `NSPanel` 子类、把 Avalonia 的自定义窗口方法复制进去再换类，并在窗口销毁前还原原类（否则 KVO 注销会让进程 abort）。见 `Utils/MacWindowInterop.cs`。
+
+### 系统语音识别的两个坑
+
+都已实测确认，改动时勿破坏：
+
+1. **必须作为独立 `.app` 启动**。TCC 按 bundle 身份记账；从终端以子进程运行时，权限会被归属到父进程（终端/IDE），请求直接失败。
+2. **`requestAuthorization:` 必须传真实的 block**。传 nil 不会弹授权框，状态永远停在 notDetermined。`Utils/ObjCBlock.cs` 按规范拼出全局 block（布局写错会导致原生崩溃）。
+
+识别回调用 delegate 版 API（`recognitionTaskWithRequest:delegate:`），从而避开为回调再造一个 block；delegate 类用 `objc_allocateClassPair` 动态创建。
+
+系统对单个识别任务有约 1 分钟限制，因此 `AppleSpeechCaptionSource` 每 45 秒主动换任务。
 
 ## 技术栈
 
@@ -194,22 +248,57 @@ Windows 版借用系统「实时字幕」拿文字，macOS 没有该功能，因
 | 语音识别 | Whisper.net + Whisper.net.Runtime |
 | 音频采集 | SoundFlow（miniaudio） |
 | 历史存储 | Microsoft.Data.Sqlite |
-| 系统窗口互操作 | 纯 C# P/Invoke 调 Objective-C 运行时 |
+| 系统互操作 | 纯 C# P/Invoke 调 Objective-C 运行时（窗口、语音识别、权限），无需 Swift/Xcode |
 
 ## 目录结构
 
 ```
 mac/
 ├── Program.cs / App.axaml        程序入口
+├── Info.plist                    .app 的身份与权限用途声明
+├── package-app.sh                打包成 .app 与可分发 zip
 ├── Views/                        界面（主窗口、设置窗、悬浮窗、历史窗）
 ├── Audio/SystemAudioCapture.cs   音频采集
-├── Captions/                     字幕来源接口 + Whisper 实现 + 模型下载
+├── Captions/                     字幕来源接口 + 两种引擎实现 + 模型下载
 ├── Services/                     翻译引擎、设置持久化、历史存储
 ├── Models/                       数据模型（设置、翻译配置、历史记录）
-└── Utils/                        路径、macOS 原生互操作
+└── Utils/                        路径、macOS 原生互操作、block 构造、权限
 ```
+
+## 打包与分发
+
+```bash
+cd mac
+./package-app.sh                        # 依赖框架（默认）
+./package-app.sh --with-runtime         # 自包含
+./package-app.sh --with-runtime osx-x64 # Intel 的自包含版
+```
+
+产物在 `mac/out/`（已被 .gitignore 忽略），同时生成 `.app` 和可直接上传的 zip。实测体积（arm64）：
+
+| 方式 | .app | 下载（zip） | 使用者预先需要 |
+|------|------|-----------|--------------|
+| 依赖框架 | 36 MB | **15 MB** | 装 .NET 10 运行时 |
+| 自包含 | 118 MB | 46 MB | 无 |
+
+命名对齐 Windows 版约定：`LiveCaptionsTranslator-macOS-arm64.zip` 与 `...-arm64-withruntime.zip`。
+
+几个实现细节：
+
+- 必须用 `ditto` 而非普通 `zip` 打包，否则会丢掉符号链接与扩展属性，解压出的 `.app` 可能无法运行。
+- 脚本会删掉 `runtimes/` 里非目标平台的原生库（依赖包不区分平台全拷），约省 10MB。
+- **模型默认不内置**，首次使用时联网下载。确实需要开箱即用时，把 `ggml-*.bin` 放入 `mac/bundled-models/` 再打包，应用会优先用它。
+
+### Gatekeeper 与签名
+
+脚本只做临时（ad-hoc）签名，`spctl` 对它的判定是 `rejected`，因此分发时必须告知使用者绕过方式：在 App 上右键选「打开」，或执行 `xattr -dr com.apple.quarantine 应用路径`。
+
+临时签名基于内容哈希，**每次重新打包都会变**。系统发现旧授权记录对不上新签名时，会既不放行也不弹框（表现为音频设备初始化失败），需执行 `tccutil reset`。要彻底解决只能用 Apple 开发者证书签名并公证。
 
 ## 已知限制
 
 - 免费 Google 接口偶尔被限流，返回 `[ERROR]`；建议改用 OpenAI 兼容接口。
-- Whisper 非流式，字幕有约 1～3 秒固有延迟。
+- Whisper 非流式，字幕有约 1～3 秒固有延迟（系统语音识别引擎快得多）。
+- 系统语音识别引擎：需以 `.app` 运行并授权；离线仅支持 `en-*` 与 `zh-CN`（实测共 63 种语言，其中 58 种需联网，音频会上传到苹果服务器）；且仅 Apple Silicon 可离线。
+- 仅在 Apple Silicon 上实测过。Intel 的依赖库（`osx-x64` / `macos-x64`）齐全，但未经真机验证。
+- 未做 Apple 证书签名与公证，分发时使用者需手动绕过 Gatekeeper；重新打包后系统可能“忘记”已授予的权限。
