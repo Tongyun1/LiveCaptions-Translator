@@ -92,20 +92,43 @@ public partial class MainWindow : Window
             settings.BuildModelBaseUrls());
     }
 
+    /// <summary>
+    /// 影响字幕来源的设置快照。这些值在创建识别器时就定下了，
+    /// 改了就必须重建来源，否则仍沿用旧值。
+    /// </summary>
+    private static (RecognitionEngine Engine, string Locale, WhisperModel Model,
+        ModelDownloadSource Source, string? CustomUrl) SourceSettingsSnapshot()
+    {
+        var s = SettingsStore.Current;
+        return (s.Engine, s.AppleSpeechLocale, s.WhisperModel, s.ModelSource, s.CustomModelBaseUrl);
+    }
+
     private async Task OpenSettingsAsync()
     {
+        var before = SourceSettingsSnapshot();
+
         var window = new SettingsWindow();
         await window.ShowDialog(this);
 
-        // 同步引擎下拉框；若改了识别引擎/模型且当前未运行，丢弃旧来源以便下次重建
         EngineComboBox.SelectedItem = SettingsStore.Current.Translation.EngineName;
-        if (window.Saved && !_running)
-        {
-            _source?.Dispose();
-            _source = null;
-            // 设备句柄归属于旧引擎，重建后必须重新枚举，否则启动时会报无此设备
-            LoadDevices();
-        }
+
+        if (!window.Saved || SourceSettingsSnapshot() == before)
+            return;
+
+        // 识别引擎与语言是建识别器时定死的，因此正在识别时也得重建；
+        // 否则改了语言会继续用旧语言识别。
+        bool wasRunning = _running;
+        if (wasRunning)
+            StopCapture();
+
+        _source?.Dispose();
+        _source = null;
+        // 设备句柄归属于旧引擎，重建后必须重新枚举，否则启动时会报无此设备
+        LoadDevices();
+
+        // 之前在识别就继续识别，用户不必再手动点一次开始
+        if (wasRunning)
+            await ToggleAsync();
     }
 
     private void OpenHistory()
