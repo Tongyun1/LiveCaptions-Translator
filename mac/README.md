@@ -34,6 +34,16 @@
 
 解压后把 App 拖进「**应用程序**」文件夹。
 
+> **如果你选了 15 MB 那个**，需要先装 .NET 10 运行时，否则应用双击没反应：
+>
+> ```bash
+> brew install --cask dotnet-runtime
+> ```
+>
+> 没有 `brew` 就到 [微软下载页](https://dotnet.microsoft.com/download/dotnet/10.0)，在 **.NET Runtime** 一栏选 macOS 对应芯片的安装包（Arm64 或 x64）。注意别选成 SDK，那是给开发者的，体积大很多。
+>
+> 实在弄不清就直接下 46 MB 那个，什么都不用装。
+
 ## 第 2 步：首次打开（需要绕过系统拦截）
 
 本应用没有 Apple 证书签名，所以第一次打开会被系统拦下。任选一种做法，**只需做一次**：
@@ -50,10 +60,6 @@ xattr -dr com.apple.quarantine "/Applications/LiveCaptions Translator.app"
 2. 打开**系统设置 → 隐私与安全性**，往下滑到「安全性」那一段。
 3. 找到「已阻止打开 LiveCaptions Translator」这行提示，点旁边的**「仍要打开」**。
 4. 再确认一次，可能要输开机密码。
-
-> 新版 macOS 上，在 App 上**右键选「打开」已经不管用了**，别在这上面浪费时间。
->
-> 要彻底免掉这一步，需要开发者花钱买 Apple 证书并做公证。
 
 ## 第 3 步：装 BlackHole，然后重启电脑
 
@@ -104,6 +110,16 @@ brew install --cask blackhole-2ch
 ---
 
 # 遇到问题？
+
+**双击没任何反应（窗口不弹、Dock 也不跳）**
+
+你下的可能是 15 MB 那个版本，但没装 .NET 10 运行时。装上就好：
+
+```bash
+brew install --cask dotnet-runtime
+```
+
+或者直接重新下载 46 MB 的那个版本，它自带运行时，不依赖任何额外安装。
 
 **听得到声音，但一直不出字幕**
 
@@ -217,7 +233,6 @@ mac/
 ├── Program.cs / App.axaml        程序入口
 ├── Info.plist                    .app 的身份与权限用途声明
 ├── package-app.sh                打包成 .app 与可分发 zip
-├── ci/                           CI 工作流草稿（未启用）
 ├── Views/                        主窗口、设置窗、悬浮窗、历史窗
 ├── Audio/SystemAudioCapture.cs   音频采集
 ├── Captions/                     字幕来源接口 + 两种引擎实现 + 模型下载
@@ -289,9 +304,7 @@ cd mac
 
 ### 发 Release
 
-手动：执行上面的打包命令，把 `mac/out/` 里的 zip 上传到 GitHub Release。
-
-自动：`ci/macos-release.yml.example` 是一份可用的工作流草稿（打 `v*` tag 后自动构建 arm64/x64 共四个 zip 并附到 Release）。它没有直接放进 `.github/workflows/`，因为那属于本目录之外的改动，应由仓库维护者决定是否引入。
+执行上面的打包命令，把 `mac/out/` 里的 zip 上传到 GitHub Release 即可。
 
 ### Gatekeeper 与签名
 
@@ -305,4 +318,3 @@ cd mac
 - 系统识别引擎：需以 `.app` 运行并授权；离线仅支持 `en-*` 与 `zh-CN`（实测共支持 63 种语言，其中 58 种需联网、音频会上传到苹果服务器）；且仅 Apple Silicon 可离线。
 - Whisper 非流式，字幕有约 1～3 秒固有延迟。
 - 免费 Google 翻译接口偶尔被限流，返回 `[ERROR]`；建议改用 OpenAI 兼容接口。
-- 仅在 Apple Silicon 上实测过。Intel 的依赖库（`osx-x64` / `macos-x64`）齐全，但未经真机验证。
