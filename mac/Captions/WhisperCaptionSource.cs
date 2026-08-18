@@ -20,13 +20,14 @@ namespace LiveCaptionsTranslator.Mac.Captions;
 /// 发出中间结果（CaptionReceived）；检测到静音间隔或话语过长时提交并清空缓冲，
 /// 开始下一段话语。注意 CaptionReceived 在后台线程触发，UI 订阅方需自行切回 UI 线程。
 /// </summary>
-public sealed class WhisperCaptionSource : ICaptionSource, IDisposable
+public sealed class WhisperCaptionSource : ICaptionSource
 {
     private const int SampleRate = SystemAudioCapture.SampleRate;
     private const int IntervalMs = 700;                    // 识别节奏
     private const int MinProcessSamples = SampleRate / 2;  // 至少 0.5s 才识别
     private const int MaxUtteranceSamples = SampleRate * 15; // 单段话语上限 15s
-    private const double SilenceRmsThreshold = 0.012;      // 静音判定阈值
+    private const double SilenceRmsThreshold = 0.012;      // 静音判定阈值（均方根）
+    private const float VoicePeakThreshold = 0.02f;        // 含语音判定阈值（峰值）
     private const int SilenceCommitMs = 800;               // 静音超过该时长则提交
 
     private readonly WhisperModel _model;
@@ -203,7 +204,7 @@ public sealed class WhisperCaptionSource : ICaptionSource, IDisposable
             if (a > peak)
                 peak = a;
         }
-        return peak >= 0.02f;
+        return peak >= VoicePeakThreshold;
     }
 
     private async Task<string> TranscribeAsync(float[] samples, CancellationToken token)

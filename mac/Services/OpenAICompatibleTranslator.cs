@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
@@ -47,44 +48,60 @@ public sealed class OpenAICompatibleTranslator : ITranslator
         };
 
         string json = JsonSerializer.Serialize(requestData);
-        using var content = new StringContent(json, Encoding.UTF8, "application/json");
 
-        _client.DefaultRequestHeaders.Clear();
-        _client.DefaultRequestHeaders.Add("Authorization", $"Bearer {_settings.ApiKey}");
+        // 授权头必须挂在单个请求上。不能改 HttpClient.DefaultRequestHeaders：
+        // 那个对象是共享的，而字幕翻译是并发的，一边 Clear 一边发送会导致
+        // 请求丢头（进而 401）或集合被修改异常。
+        using var request = new HttpRequestMessage(HttpMethod.Post, _settings.ApiUrl)
+        {
+            Content = new StringContent(json, Encoding.UTF8, "application/json")
+        };
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _settings.ApiKey);
 
         HttpResponseMessage response;
         try
         {
-            response = await _client.PostAsync(_settings.ApiUrl, content, cancellationToken);
+            response = await _client.SendAsync(request, cancellationToken);
         }
-        catch (OperationCanceledException ex) when (ex.Message.StartsWith("The request"))
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
+            // token 未取消却抛取消，只能是 HttpClient 自己的超时。
+            // 不能靠异常文案判断，那个文案会随 .NET 版本与语言变。
             return "[ERROR] 翻译失败：请求超时（>8 秒），请更换更快的接口或检查网络。";
+        }
+        catch (OperationCanceledException)
+        {
+            // 调用方主动取消（字幕更新后旧翻译被取代）。必须向上传播，
+            // 否则会被下面的兜底分支变成一条 [ERROR] 文本显示给用户。
+            throw;
         }
         catch (Exception ex)
         {
             return $"[ERROR] 翻译失败：{ex.Message}";
         }
 
-        if (!response.IsSuccessStatusCode)
-            return $"[ERROR] 翻译失败：HTTP {response.StatusCode}";
+        using (response)
+        {
+            if (!response.IsSuccessStatusCode)
+                return $"[ERROR] 翻译失败：HTTP {response.StatusCode}";
 
-        string body = await response.Content.ReadAsStringAsync(cancellationToken);
-        try
-        {
-            using var doc = JsonDocument.Parse(body);
-            string? output = doc.RootElement
-                .GetProperty("choices")[0]
-                .GetProperty("message")
-                .GetProperty("content")
-                .GetString();
-            return string.IsNullOrWhiteSpace(output)
-                ? "[ERROR] 翻译失败：响应为空"
-                : output!.Trim();
-        }
-        catch
-        {
-            return "[ERROR] 翻译失败：无法解析响应";
+            string body = await response.Content.ReadAsStringAsync(cancellationToken);
+            try
+            {
+                using var doc = JsonDocument.Parse(body);
+                string? output = doc.RootElement
+                    .GetProperty("choices")[0]
+                    .GetProperty("message")
+                    .GetProperty("content")
+                    .GetString();
+                return string.IsNullOrWhiteSpace(output)
+                    ? "[ERROR] 翻译失败：响应为空"
+                    : output!.Trim();
+            }
+            catch
+            {
+                return "[ERROR] 翻译失败：无法解析响应";
+            }
         }
     }
 }

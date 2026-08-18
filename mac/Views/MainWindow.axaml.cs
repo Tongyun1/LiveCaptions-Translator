@@ -239,14 +239,18 @@ public partial class MainWindow : Window
             }
 
             bool apple = SettingsStore.Current.Engine == RecognitionEngine.AppleSpeech;
+            // Progress<T> 会自己把回调派回创建它的同步上下文（这里就是 UI 线程）
             var progress = new Progress<double>(p =>
-                Dispatcher.UIThread.Post(() => SetStatus($"首次使用，正在下载识别模型… {p:P0}")));
+                SetStatus($"首次使用，正在下载识别模型… {p:P0}"));
 
             SetStatus(apple
                 ? "正在申请系统语音识别权限（若弹出对话框请允许）…"
                 : "正在加载识别模型…");
             await _source.InitializeAsync(progress);
 
+            // 先退订再订：若上一次 Start 失败过，订阅可能已经建立，
+            // 直接再订会变成重复订阅，导致每句字幕被翻译两次。
+            _source.CaptionReceived -= OnCaptionReceived;
             _source.CaptionReceived += OnCaptionReceived;
             _source.Start();
 
@@ -275,6 +279,8 @@ public partial class MainWindow : Window
         }
 
         _translateCts?.Cancel();
+        // 不清的话，重新开始后若首句与停止前最后一句相同，会被当成重复而不翻译
+        _lastTranslatedSource = string.Empty;
         _running = false;
         StartStopButton.Content = "开始";
         SetStatus("已停止。");
@@ -298,36 +304,49 @@ public partial class MainWindow : Window
             return;
         _lastTranslatedSource = text;
 
+        // 新请求取代旧请求。不在这里 Dispose 旧 CTS：旧请求可能还在用它的 token，
+        // 立即释放会让那边抛 ObjectDisposedException；普通 CTS 由 GC 回收即可。
         _translateCts?.Cancel();
         var cts = new CancellationTokenSource();
         _translateCts = cts;
 
+        string translated;
         try
         {
-            string translated = await _translation.TranslateAsync(text, cts.Token);
-            if (cts.IsCancellationRequested)
-                return;
-
-            Dispatcher.UIThread.Post(() =>
-            {
-                TranslationText.Text = translated;
-                TranslationScroll.ScrollToEnd();
-                _overlay?.UpdateTranslation(translated);
-            });
-
-            // 仅记录成功的翻译；翻译引擎失败时会返回以 [ERROR] 开头的说明
-            if (!translated.StartsWith("[ERROR]", StringComparison.Ordinal))
-            {
-                await HistoryStore.LogAsync(text, translated,
-                    _translation.Settings.TargetLanguage, _translation.Settings.EngineName);
-            }
+            translated = await _translation.TranslateAsync(text, cts.Token);
         }
         catch (OperationCanceledException)
         {
-            // 被新的翻译请求取代，忽略
+            return;   // 被新的翻译请求取代
         }
         catch (Exception ex)
         {
+            Dispatcher.UIThread.Post(() => SetStatus("翻译失败: " + ex.Message));
+            return;
+        }
+
+        if (cts.IsCancellationRequested)
+            return;
+
+        Dispatcher.UIThread.Post(() =>
+        {
+            TranslationText.Text = translated;
+            TranslationScroll.ScrollToEnd();
+            _overlay?.UpdateTranslation(translated);
+        });
+
+        // 仅记录成功的翻译；翻译引擎失败时会返回以 [ERROR] 开头的说明
+        if (translated.StartsWith("[ERROR]", StringComparison.Ordinal))
+            return;
+
+        try
+        {
+            await HistoryStore.LogAsync(text, translated,
+                _translation.Settings.TargetLanguage, _translation.Settings.EngineName);
+        }
+        catch (Exception ex)
+        {
+            // 历史记不上不应该影响字幕显示，因此只记日志
             Console.Error.WriteLine($"[MainWindow] 记录历史失败: {ex.Message}");
         }
     }

@@ -165,6 +165,9 @@ public sealed class AppleSpeechCaptionSource : ICaptionSource
         if (!_running || samples.Length == 0)
             return;
 
+        // 音频回调跑在 miniaudio 的线程上，没有现成的 autorelease 池，
+        // 不自己开一个的话系统内部产生的 autorelease 对象会一直累积。
+        IntPtr pool = AppleSpeechInterop.BeginAutoreleasePool();
         try
         {
             lock (_lock)
@@ -183,6 +186,10 @@ public sealed class AppleSpeechCaptionSource : ICaptionSource
         {
             Console.Error.WriteLine($"[AppleSpeechCaptionSource] 追加音频失败: {ex.Message}");
         }
+        finally
+        {
+            AppleSpeechInterop.DrainAutoreleasePool(pool);
+        }
     }
 
     /// <summary>创建新的识别请求与任务。调用方需持有 <see cref="_lock"/>。</summary>
@@ -196,15 +203,19 @@ public sealed class AppleSpeechCaptionSource : ICaptionSource
     /// <summary>结束当前请求与任务。调用方需持有 <see cref="_lock"/>。</summary>
     private void FinishCurrentTask()
     {
-        if (_request != IntPtr.Zero)
-        {
-            AppleSpeechInterop.EndAudio(_request);
-            _request = IntPtr.Zero;
-        }
         if (_task != IntPtr.Zero)
         {
             AppleSpeechInterop.CancelTask(_task);
+            // 任务对象来自 recognitionTaskWithRequest:delegate:，不归我们持有，
+            // 因此只丢句柄、绝不能 release（否则过释放崩溃）。
             _task = IntPtr.Zero;
+        }
+        if (_request != IntPtr.Zero)
+        {
+            AppleSpeechInterop.EndAudio(_request);
+            // 请求是 alloc/init 得来的，归我们持有；每 45 秒轮换一次，不释放会累积。
+            AppleSpeechInterop.Release(_request);
+            _request = IntPtr.Zero;
         }
     }
 
@@ -220,5 +231,10 @@ public sealed class AppleSpeechCaptionSource : ICaptionSource
     {
         Stop();
         _capture.Dispose();
+
+        // 识别器是 alloc/init 得来的，归我们持有
+        AppleSpeechInterop.Release(_recognizer);
+        _recognizer = IntPtr.Zero;
+        _initialized = false;
     }
 }

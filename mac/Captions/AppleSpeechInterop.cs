@@ -19,6 +19,13 @@ namespace LiveCaptionsTranslator.Mac.Captions;
 ///
 /// 回调用 delegate 版 API（recognitionTaskWithRequest:delegate:），
 /// 从而避免从 C# 构造 Objective-C block。
+///
+/// 内存所有权：这里没有 ARC，必须手工遵守 Cocoa 命名约定。
+/// alloc/init 得到的对象归调用方持有，用完要 <see cref="Release"/>；
+/// 其它方法（如 recognitionTaskWithRequest:delegate:、stringWithUTF8String:）
+/// 返回的是 autorelease 对象，**绝不能** release，否则过释放崩溃；
+/// 但它们需要所在线程有 autorelease 池，非主线程（如音频回调）需自己开池，
+/// 见 <see cref="BeginAutoreleasePool"/>。
 /// </summary>
 [SupportedOSPlatform("macos")]
 internal static class AppleSpeechInterop
@@ -54,6 +61,32 @@ internal static class AppleSpeechInterop
 
     private static IntPtr Sel(string s) => sel_registerName(s);
 
+    // ---------- 内存管理 ----------
+
+    [DllImport(Objc)] private static extern IntPtr objc_autoreleasePoolPush();
+    [DllImport(Objc)] private static extern void objc_autoreleasePoolPop(IntPtr pool);
+
+    /// <summary>
+    /// 释放一个由 alloc/init 得到的对象。不要用在 autorelease 对象上。
+    /// </summary>
+    public static void Release(IntPtr obj)
+    {
+        if (obj != IntPtr.Zero) Send(obj, Sel("release"));
+    }
+
+    /// <summary>
+    /// 开一个 autorelease 池。音频回调等非主线程没有现成的池，
+    /// 不开的话系统内部产生的 autorelease 对象会一直累积。
+    /// 必须配对 <see cref="DrainAutoreleasePool"/>（用 try/finally）。
+    /// </summary>
+    public static IntPtr BeginAutoreleasePool() => objc_autoreleasePoolPush();
+
+    /// <summary>排空并关闭 <see cref="BeginAutoreleasePool"/> 开的池。</summary>
+    public static void DrainAutoreleasePool(IntPtr pool)
+    {
+        if (pool != IntPtr.Zero) objc_autoreleasePoolPop(pool);
+    }
+
     private static string? FromNsString(IntPtr ns) => ns == IntPtr.Zero
         ? null : Marshal.PtrToStringUTF8(Send(ns, Sel("UTF8String")));
 
@@ -80,16 +113,16 @@ internal static class AppleSpeechInterop
     /// <summary>授权状态：0 未决定、1 已拒绝、2 受限、3 已授权。</summary>
     public static long AuthorizationStatus() =>
         SendLong(objc_getClass("SFSpeechRecognizer"), Sel("authorizationStatus"));
-    
+
     // ---------- 授权回调 ----------
     //
     // requestAuthorization: 必须传一个真实的 block，传 nil 不会弹出授权对话框（已实测）。
-    
+
     /// <summary>授权回调写入的结果（-1 表示尚未回调）。</summary>
     private static long _authCallbackStatus = -1;
-    
+
     private static IntPtr _authBlock;
-    
+
     [UnmanagedCallersOnly]
     private static void OnAuthorizationResult(IntPtr block, long status)
     {
@@ -97,7 +130,7 @@ internal static class AppleSpeechInterop
         try { Volatile.Write(ref _authCallbackStatus, status); }
         catch { }
     }
-    
+
     /// <summary>
     /// 发起授权请求。必须传真实 block，否则系统不会弹框。
     /// 结果既会写入回调，也可通过 <see cref="AuthorizationStatus"/> 轮询。
@@ -112,7 +145,7 @@ internal static class AppleSpeechInterop
         }
         SendP(objc_getClass("SFSpeechRecognizer"), Sel("requestAuthorization:"), _authBlock);
     }
-    
+
     /// <summary>读取授权回调结果；-1 表示尚未回调。</summary>
     public static long AuthorizationCallbackResult() => Volatile.Read(ref _authCallbackStatus);
 
@@ -215,18 +248,28 @@ internal static class AppleSpeechInterop
 
         SendVoidUInt(buffer, Sel("setFrameLength:"), (uint)count);
 
-        // floatChannelData 是 float* const*，取第 0 声道
-        IntPtr channels = Send(buffer, Sel("floatChannelData"));
-        if (channels == IntPtr.Zero) return false;
-        IntPtr channel0 = Marshal.ReadIntPtr(channels);
-        if (channel0 == IntPtr.Zero) return false;
+        try
+        {
+            // floatChannelData 是 float* const*，取第 0 声道
+            IntPtr channels = Send(buffer, Sel("floatChannelData"));
+            if (channels == IntPtr.Zero) return false;
+            IntPtr channel0 = Marshal.ReadIntPtr(channels);
+            if (channel0 == IntPtr.Zero) return false;
 
-        fixed (float* src = samples)
-            Buffer.MemoryCopy(src, (void*)channel0, (long)count * sizeof(float),
-                (long)count * sizeof(float));
+            fixed (float* src = samples)
+                Buffer.MemoryCopy(src, (void*)channel0, (long)count * sizeof(float),
+                    (long)count * sizeof(float));
 
-        SendP(request, Sel("appendAudioPCMBuffer:"), buffer);
-        return true;
+            SendP(request, Sel("appendAudioPCMBuffer:"), buffer);
+            return true;
+        }
+        finally
+        {
+            // 必须释放：音频回调约每秒 100 次，不释放的话内存约每分钟涨 6MB（已实测）。
+            // append 后该对象的 retainCount 会从 1 变 2（已实测），说明请求自己持有了一份，
+            // 因此释放我们那一份是安全的。
+            Release(buffer);
+        }
     }
 
     // ---------- delegate 动态类 ----------
