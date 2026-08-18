@@ -19,7 +19,7 @@ public partial class OverlayWindow : Window
     private double _originalFontSize = 15;
 
     private bool _resizing;
-    private DispatcherTimer? _reapplyTimer;
+    private bool _panelConverted;
 
     public OverlayWindow()
     {
@@ -41,30 +41,29 @@ public partial class OverlayWindow : Window
         Opened += (_, _) =>
         {
             MoveToBottomCenter();
-            EnableFullscreenOverlay();
-            // Avalonia 会在初始化/激活时重置窗口层级，导致全屏时被盖住；
-            // 因此周期性地重新应用，确保悬浮窗始终位于全屏内容之上。
-            _reapplyTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1500) };
-            _reapplyTimer.Tick += (_, _) => EnableFullscreenOverlay();
-            _reapplyTimer.Start();
+            ConvertToPanel();
+            // 延迟再设一次,对抗 Avalonia 在窗口完全就绪后可能的层级重置
+            DispatcherTimer.RunOnce(ConvertToPanel, TimeSpan.FromMilliseconds(500));
         };
-        Closed += (_, _) => _reapplyTimer?.Stop();
     }
 
-    /// <summary>让悬浮窗能浮在全屏 App 之上（macOS 原生行为）。</summary>
-    private void EnableFullscreenOverlay()
+    /// <summary>
+    /// 将窗口转换为 NSPanel（一次性）。转换后悬浮窗可浮在其它 App 的全屏之上。
+    /// </summary>
+    private void ConvertToPanel()
     {
-        if (!OperatingSystem.IsMacOS())
+        if (_panelConverted || !OperatingSystem.IsMacOS())
             return;
         try
         {
             var platformHandle = TryGetPlatformHandle();
             IntPtr handle = platformHandle?.Handle ?? IntPtr.Zero;
-            MacWindowInterop.EnableOverlayOverFullscreen(handle, platformHandle?.HandleDescriptor);
+            _panelConverted = MacWindowInterop.ConvertToFloatingPanel(
+                handle, platformHandle?.HandleDescriptor);
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"[OverlayWindow] 设置全屏悬浮失败: {ex.Message}");
+            Console.Error.WriteLine($"[OverlayWindow] NSPanel 转换失败: {ex.Message}");
         }
     }
 
