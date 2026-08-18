@@ -120,8 +120,9 @@ fi
 echo "  运行：open \"$APP\""
 echo "  安装：拖进「应用程序」文件夹"
 echo
-echo "提示：未经 Apple 证书签名，别人首次打开会被 Gatekeeper 拦下，"
-echo "      需在该应用上右键选择「打开」，或执行："
+echo "提示：未经 Apple 证书签名，别人下载后双击打不开（右键选「打开」也不管用）。"
+echo "      需先双击一次被拒，再到「系统设置 → 隐私与安全性」里点「仍要打开」；"
+echo "      或者直接执行："
 echo "      xattr -dr com.apple.quarantine \"$APP\""
 echo
 echo "      另：临时签名每次打包都会变，系统可能因此“忘记”已授予的权限。"
