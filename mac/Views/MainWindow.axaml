@@ -1,0 +1,46 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d" d:DesignWidth="760" d:DesignHeight="520"
+        x:Class="LiveCaptionsTranslator.Mac.Views.MainWindow"
+        Width="760" Height="520"
+        Title="LiveCaptions Translator (macOS)">
+    <Grid RowDefinitions="Auto,Auto,*,*" Margin="16">
+        <!-- 顶部控制栏 -->
+        <Grid Grid.Row="0" ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto" Margin="0,0,0,12">
+            <TextBlock Grid.Column="0" Text="音频设备:" VerticalAlignment="Center" Margin="0,0,8,0" />
+            <ComboBox Grid.Column="1" x:Name="DeviceComboBox" HorizontalAlignment="Stretch" />
+            <TextBlock Grid.Column="2" Text="翻译:" VerticalAlignment="Center" Margin="12,0,8,0" />
+            <ComboBox Grid.Column="3" x:Name="EngineComboBox" Width="110" />
+            <Button Grid.Column="4" x:Name="RefreshButton" Content="刷新" Margin="8,0,0,0" />
+            <Button Grid.Column="5" x:Name="StartStopButton" Content="开始" Width="80" Margin="8,0,0,0" />
+        </Grid>
+
+        <!-- 状态行 -->
+        <TextBlock Grid.Row="1" x:Name="StatusText"
+                   Text="就绪。选择音频设备后点“开始”。" Opacity="0.7" Margin="0,0,0,8" />
+
+        <!-- 原文 -->
+        <Border Grid.Row="2" BorderBrush="#33888888" BorderThickness="1" CornerRadius="6"
+                Padding="12" Margin="0,0,0,8">
+            <DockPanel>
+                <TextBlock DockPanel.Dock="Top" Text="原文" FontSize="12" Opacity="0.5" Margin="0,0,0,4" />
+                <ScrollViewer x:Name="CaptionScroll">
+                    <TextBlock x:Name="CaptionText" TextWrapping="Wrap" FontSize="18" Text="" />
+                </ScrollViewer>
+            </DockPanel>
+        </Border>
+
+        <!-- 译文 -->
+        <Border Grid.Row="3" BorderBrush="#33888888" BorderThickness="1" CornerRadius="6" Padding="12">
+            <DockPanel>
+                <TextBlock DockPanel.Dock="Top" Text="译文" FontSize="12" Opacity="0.5" Margin="0,0,0,4" />
+                <ScrollViewer x:Name="TranslationScroll">
+                    <TextBlock x:Name="TranslationText" TextWrapping="Wrap" FontSize="18"
+                               Foreground="#4C9AFF" Text="" />
+                </ScrollViewer>
+            </DockPanel>
+        </Border>
+    </Grid>
+</Window>
