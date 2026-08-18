@@ -39,6 +39,14 @@
 	</ItemGroup>
 
 	<ItemGroup>
+	  <!-- The macOS version is a separate project (see mac/) and must be excluded
+	       from this project's default globs, which would otherwise pick up its
+	       sources because this project lives in the repository root. -->
+	  <Compile Remove="mac\**" />
+	  <None Remove="mac\**" />
+	</ItemGroup>
+
+	<ItemGroup>
 	  <None Update="Properties\AssemblyInfo.tt">
 	    <Generator>TextTemplatingFileGenerator</Generator>
 	    <LastGenOutput>AssemblyInfo.cs</LastGenOutput>
