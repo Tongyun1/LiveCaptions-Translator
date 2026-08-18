@@ -1,0 +1,49 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:models="clr-namespace:LiveCaptionsTranslator.Mac.Models"
+        mc:Ignorable="d" d:DesignWidth="820" d:DesignHeight="560"
+        x:Class="LiveCaptionsTranslator.Mac.Views.HistoryWindow"
+        Width="820" Height="560"
+        MinWidth="620" MinHeight="380"
+        Title="翻译历史"
+        WindowStartupLocation="CenterOwner">
+    <Grid RowDefinitions="Auto,*,Auto" Margin="16">
+        <!-- 顶部：搜索与操作 -->
+        <Grid Grid.Row="0" ColumnDefinitions="*,Auto,Auto" Margin="0,0,0,12">
+            <TextBox Grid.Column="0" x:Name="SearchBox"
+                     PlaceholderText="搜索原文或译文…" />
+            <Button Grid.Column="1" x:Name="ExportButton" Content="导出 CSV" Margin="8,0,0,0" />
+            <Button Grid.Column="2" x:Name="ClearButton" Content="清空" Margin="8,0,0,0" />
+        </Grid>
+
+        <!-- 列表 -->
+        <Border Grid.Row="1" BorderBrush="#40808080" BorderThickness="1" CornerRadius="6">
+            <ListBox x:Name="HistoryList" Background="Transparent">
+                <ListBox.ItemTemplate>
+                    <DataTemplate x:DataType="models:TranslationHistoryEntry">
+                        <StackPanel Spacing="3" Margin="4">
+                            <TextBlock Text="{Binding TimeDisplay}"
+                                       FontSize="11" Opacity="0.5" />
+                            <TextBlock Text="{Binding SourceText}"
+                                       TextWrapping="Wrap" FontSize="13" Opacity="0.75" />
+                            <TextBlock Text="{Binding TranslatedText}"
+                                       TextWrapping="Wrap" FontSize="14" FontWeight="SemiBold" />
+                        </StackPanel>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+        </Border>
+
+        <!-- 底部：分页与状态 -->
+        <Grid Grid.Row="2" ColumnDefinitions="Auto,*,Auto,Auto,Auto" Margin="0,12,0,0">
+            <TextBlock Grid.Column="0" x:Name="StatusText"
+                       VerticalAlignment="Center" FontSize="12" Opacity="0.7" />
+            <Button Grid.Column="2" x:Name="PrevButton" Content="上一页" />
+            <TextBlock Grid.Column="3" x:Name="PageText"
+                       VerticalAlignment="Center" Margin="12,0" FontSize="12" />
+            <Button Grid.Column="4" x:Name="NextButton" Content="下一页" />
+        </Grid>
+    </Grid>
+</Window>

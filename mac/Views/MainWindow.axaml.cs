@@ -27,6 +27,7 @@ public partial class MainWindow : Window
     private string _lastTranslatedSource = string.Empty;
 
     private OverlayWindow? _overlay;
+    private HistoryWindow? _history;
 
     public MainWindow()
     {
@@ -44,6 +45,7 @@ public partial class MainWindow : Window
         };
 
         SettingsButton.Click += async (_, _) => await OpenSettingsAsync();
+        HistoryButton.Click += (_, _) => OpenHistory();
         RefreshButton.Click += (_, _) => LoadDevices();
         StartStopButton.Click += async (_, _) => await ToggleAsync();
         OverlayButton.Click += (_, _) => ToggleOverlay();
@@ -51,6 +53,7 @@ public partial class MainWindow : Window
         Closed += (_, _) =>
         {
             _overlay?.Close();
+            _history?.Close();
             _source?.Dispose();
         };
     }
@@ -76,6 +79,19 @@ public partial class MainWindow : Window
             _source?.Dispose();
             _source = null;
         }
+    }
+
+    private void OpenHistory()
+    {
+        if (_history is not null)
+        {
+            _history.Activate();
+            return;
+        }
+
+        _history = new HistoryWindow();
+        _history.Closed += (_, _) => _history = null;
+        _history.Show(this);
     }
 
     private void ToggleOverlay()
@@ -231,10 +247,21 @@ public partial class MainWindow : Window
                 TranslationScroll.ScrollToEnd();
                 _overlay?.UpdateTranslation(translated);
             });
+
+            // 仅记录成功的翻译；翻译引擎失败时会返回以 [ERROR] 开头的说明
+            if (!translated.StartsWith("[ERROR]", StringComparison.Ordinal))
+            {
+                await HistoryStore.LogAsync(text, translated,
+                    _translation.Settings.TargetLanguage, _translation.Settings.EngineName);
+            }
         }
         catch (OperationCanceledException)
         {
             // 被新的翻译请求取代，忽略
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[MainWindow] 记录历史失败: {ex.Message}");
         }
     }
 

@@ -48,6 +48,7 @@ dotnet run
 2. 需要时点「设置」配置翻译引擎、目标语言、OpenAI 密钥、Whisper 模型。
 3. 点「开始」，播放音视频，主窗口显示原文与译文。
 4. 点「悬浮窗」可浮出一条字幕条，可拖动、可缩放。
+5. 点「历史」查看以往翻译，可搜索、分页、导出 CSV。
 
 ---
 
@@ -57,7 +58,8 @@ dotnet run
 - ✅ 实时翻译：Google（免配置）/ OpenAI 兼容接口
 - ✅ 悬浮字幕窗：无边框、置顶、半透明、可拖动、可缩放；**可浮在其它 App 的真全屏之上**
 - ✅ 设置持久化：记住设备、引擎、目标语言、模型、OpenAI 配置
-- ⏳ 计划中：历史记录、更多翻译引擎
+- ✅ 翻译历史：SQLite 本地存储，支持搜索、分页、导出 CSV、清空
+- ⏳ 计划中：更多翻译引擎
 
 ## 已知限制
 
@@ -68,6 +70,7 @@ dotnet run
 ```
 ~/Library/Application Support/LiveCaptionsTranslator/
 ├── settings.json      应用设置
+├── history.db         翻译历史（SQLite）
 └── models/            Whisper 模型缓存
 ```
 
@@ -80,6 +83,7 @@ dotnet run
 | UI 框架 | Avalonia（跨平台，net10.0） |
 | 语音识别 | Whisper.net + Whisper.net.Runtime |
 | 音频采集 | SoundFlow（miniaudio） |
+| 历史存储 | Microsoft.Data.Sqlite |
 | 系统窗口互操作 | 纯 C# P/Invoke 调 Objective-C 运行时（无需 Swift/Xcode） |
 
 ## 目录结构
@@ -87,10 +91,10 @@ dotnet run
 ```
 mac/
 ├── Program.cs / App.axaml        程序入口
-├── Views/                        界面（主窗口、设置窗、悬浮窗）
+├── Views/                        界面（主窗口、设置窗、悬浮窗、历史窗）
 ├── Audio/SystemAudioCapture.cs   音频采集
 ├── Captions/                     字幕来源接口 + Whisper 实现 + 模型下载
-├── Services/                     翻译引擎与设置持久化
-├── Models/                       数据模型（设置、翻译配置）
+├── Services/                     翻译引擎、设置持久化、历史存储
+├── Models/                       数据模型（设置、翻译配置、历史记录）
 └── Utils/                        路径、macOS 原生互操作
 ```
