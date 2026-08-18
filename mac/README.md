@@ -17,9 +17,21 @@ Windows 版借用系统「实时字幕」拿文字；macOS 没有该功能，因
 
 ## 环境要求
 
-- macOS 12+（Apple Silicon 或 Intel）
-- [.NET SDK 8 或更高](https://dotnet.microsoft.com/download)（开发者用 `brew install --cask dotnet-sdk`）
-- [BlackHole](https://github.com/ExistentialAudio/BlackHole) 虚拟声卡（用于捕获系统音频）
+目前只能从源码运行，没有提供打包好的可执行文件，所以**必须先装 .NET SDK**。
+
+| 需要装什么 | 说明 | 安装命令 |
+|-----------|------|---------|
+| macOS 12+ | Apple Silicon 或 Intel | — |
+| [.NET SDK 10](https://dotnet.microsoft.com/download) | 本项目目标框架是 `net10.0`，**SDK 8 编译不了**，必须 10 或更高 | `brew install --cask dotnet-sdk` |
+| [BlackHole](https://github.com/ExistentialAudio/BlackHole) | 虚拟声卡，用于捕获系统音频 | `brew install --cask blackhole-2ch` |
+
+装完 SDK 后确认一下版本，输出应为 `10.x` 或更高：
+
+```bash
+dotnet --version
+```
+
+如果提示 `command not found: dotnet`，新开一个终端窗口再试（安装程序会写入 `/etc/paths.d/dotnet`，需要重新加载 PATH）。
 
 ## 一次性配置：捕获系统声音
 
@@ -38,11 +50,37 @@ macOS 不允许应用直接抓系统输出，需用虚拟声卡中转：
 ## 构建与运行
 
 ```bash
-cd mac
+git clone https://github.com/SakiRinn/LiveCaptions-Translator.git
+cd LiveCaptions-Translator/mac
 dotnet run
 ```
 
-首次点「开始」会自动下载 Whisper 模型（约 140MB，缓存于下方数据目录）。
+首次点「开始」会自动下载 Whisper 模型（约 140MB，缓存于下方数据目录），需要联网，之后离线可用。
+
+### 打包成不依赖 .NET 的版本（可选）
+
+如果想把程序拷给没装 .NET 的人用，可以打包成自包含版本。运行时会被打进包里，对方机器上什么都不用装：
+
+```bash
+cd mac
+
+# Apple Silicon
+dotnet publish -c Release -r osx-arm64 --self-contained true -o ./out
+
+# Intel 芯片则改成
+dotnet publish -c Release -r osx-x64 --self-contained true -o ./out
+```
+
+产物在 `mac/out/`（已在 .gitignore 中，不会被误提交），约 128MB，直接跑 `./out/LiveCaptionsTranslator.Mac` 即可启动。
+
+注意几点：
+
+- 打包的人自己仍然需要 .NET SDK，只是**使用者**不再需要。
+- 以上只在 Apple Silicon 上实测过。Intel 的依赖库（miniaudio 与 whisper.cpp 均含 `osx-x64` / `macos-x64`）是齐的，但未经真机验证。
+- 产物未做代码签名，对方首次打开会被 macOS Gatekeeper 拦下。让对方在产物目录执行一次即可解除：
+  ```bash
+  xattr -dr com.apple.quarantine ./LiveCaptionsTranslator.Mac
+  ```
 
 ## 使用
 
