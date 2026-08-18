@@ -55,6 +55,9 @@ internal static class MacWindowInterop
     [DllImport(Libobjc, EntryPoint = "class_getSuperclass")]
     private static extern IntPtr ClassGetSuperclass(IntPtr cls);
 
+    [DllImport(Libobjc, EntryPoint = "class_getName")]
+    private static extern IntPtr ClassGetName(IntPtr cls);
+
     // 动态类创建
     [DllImport(Libobjc, EntryPoint = "objc_allocateClassPair")]
     private static extern IntPtr ObjcAllocateClassPair(IntPtr superclass,
@@ -106,34 +109,20 @@ internal static class MacWindowInterop
     /// 动态创建的子类保留了 Avalonia 的自定义方法，避免 unrecognized selector 崩溃。
     /// 调用时机：窗口打开后只需调用一次。
     /// </summary>
-    public static bool ConvertToFloatingPanel(IntPtr handle, string? descriptor)
+    /// <returns>转换前的原始类；返回 IntPtr.Zero 表示未转换。
+    /// 关闭窗口前必须用它调用 <see cref="RestoreClass"/>。</returns>
+    public static IntPtr ConvertToFloatingPanel(IntPtr handle, string? descriptor)
     {
-        if (handle == IntPtr.Zero)
-            return false;
-
-        IntPtr window;
-        if (string.Equals(descriptor, "NSWindow", StringComparison.OrdinalIgnoreCase))
-            window = handle;
-        else if (string.Equals(descriptor, "NSView", StringComparison.OrdinalIgnoreCase))
-            window = MsgSend(handle, SelRegisterName("window"));
-        else
-        {
-            Console.Error.WriteLine($"[MacWindowInterop] 未知句柄类型 '{descriptor}'");
-            return false;
-        }
-
+        IntPtr window = ResolveWindow(handle, descriptor);
         if (window == IntPtr.Zero)
-        {
-            Console.Error.WriteLine("[MacWindowInterop] 未获取到 NSWindow");
-            return false;
-        }
+            return IntPtr.Zero;
 
         // 获取或创建动态的 _AvnFloatingPanel 类
         IntPtr floatingPanelClass = GetOrCreateFloatingPanelClass(window);
         if (floatingPanelClass == IntPtr.Zero)
         {
             Console.Error.WriteLine("[MacWindowInterop] 无法创建动态 Panel 类");
-            return false;
+            return IntPtr.Zero;
         }
 
         // 运行时替换窗口类
@@ -141,7 +130,7 @@ internal static class MacWindowInterop
         if (oldClass == IntPtr.Zero)
         {
             Console.Error.WriteLine("[MacWindowInterop] object_setClass 失败");
-            return false;
+            return IntPtr.Zero;
         }
 
         // 设置 styleMask：加入 nonactivatingPanel 位
@@ -160,12 +149,54 @@ internal static class MacWindowInterop
         // 设置窗口层级
         MsgSendVoidLong(window, SelRegisterName("setLevel:"), StatusWindowLevel);
 
-        IntPtr classNamePtr = ObjectGetClassName(window);
-        string? className = classNamePtr != IntPtr.Zero
-            ? Marshal.PtrToStringAnsi(classNamePtr) : "?";
-        Console.Error.WriteLine(
-            $"[MacWindowInterop] 成功转换为浮动面板 (class={className}, level={StatusWindowLevel})");
-        return true;
+        return oldClass;
+    }
+
+    /// <summary>
+    /// 把窗口类还原为 <see cref="ConvertToFloatingPanel"/> 返回的原始类。
+    ///
+    /// 必须在窗口关闭（NSWindow dealloc）之前调用：AppKit 会对窗口注册 KVO
+    /// 观察（如 _windowLayerContext），而 KVO 的记账依赖对象的 isa。若以被换过的
+    /// 类进入 dealloc，AppKit 注销观察者时找不到注册记录，会抛 NSRangeException
+    /// 导致进程 abort。
+    /// </summary>
+    public static void RestoreClass(IntPtr handle, string? descriptor, IntPtr originalClass)
+    {
+        if (originalClass == IntPtr.Zero)
+            return;
+
+        IntPtr window = ResolveWindow(handle, descriptor);
+        if (window == IntPtr.Zero)
+            return;
+
+        // 只在 isa 确实还是我们换上去的类时才还原。若 KVO 在我们之后又在上面
+        // swizzle 了一层（NSKVONotifying__AvnFloatingPanel），盲目还原反而会破坏那层记账。
+        IntPtr current = ObjectGetClass(window);
+        if (current != _floatingPanelClass)
+        {
+            IntPtr namePtr = ObjectGetClassName(window);
+            string? name = namePtr != IntPtr.Zero ? Marshal.PtrToStringAnsi(namePtr) : "?";
+            Console.Error.WriteLine(
+                $"[MacWindowInterop] 当前类为 '{name}'（非预期），跳过还原");
+            return;
+        }
+
+        ObjectSetClass(window, originalClass);
+    }
+
+    /// <summary>从 Avalonia 原生句柄解析出 NSWindow。</summary>
+    private static IntPtr ResolveWindow(IntPtr handle, string? descriptor)
+    {
+        if (handle == IntPtr.Zero)
+            return IntPtr.Zero;
+
+        if (string.Equals(descriptor, "NSWindow", StringComparison.OrdinalIgnoreCase))
+            return handle;
+        if (string.Equals(descriptor, "NSView", StringComparison.OrdinalIgnoreCase))
+            return MsgSend(handle, SelRegisterName("window"));
+
+        Console.Error.WriteLine($"[MacWindowInterop] 未知句柄类型 '{descriptor}'");
+        return IntPtr.Zero;
     }
 
     /// <summary>
@@ -195,11 +226,14 @@ internal static class MacWindowInterop
 
         // 从 Avalonia 的原始窗口类链上复制自定义方法到新类
         // （遍历从 originalClass 到 NSWindow 之间的每一层，复制 NSPanel 没有的方法）
+        // 跳过 KVO 动态生成的 NSKVONotifying_* 层：它的方法是为原类定制的通知包装，
+        // 复制过来只会弄乱 KVO 行为。
         IntPtr cls = originalClass;
         int methodsCopied = 0;
         while (cls != IntPtr.Zero && cls != nsWindowClass && cls != panelClass)
         {
-            methodsCopied += CopyNewMethods(cls, newClass, panelClass);
+            if (!IsKvoClass(cls))
+                methodsCopied += CopyNewMethods(cls, newClass, panelClass);
             cls = ClassGetSuperclass(cls);
         }
 
@@ -209,6 +243,14 @@ internal static class MacWindowInterop
         Console.Error.WriteLine(
             $"[MacWindowInterop] 创建动态类 _AvnFloatingPanel，复制了 {methodsCopied} 个自定义方法");
         return newClass;
+    }
+
+    /// <summary>判断是否为 KVO 运行时生成的中间类（NSKVONotifying_*）。</summary>
+    private static bool IsKvoClass(IntPtr cls)
+    {
+        IntPtr namePtr = ClassGetName(cls);
+        string? name = namePtr != IntPtr.Zero ? Marshal.PtrToStringAnsi(namePtr) : null;
+        return name?.StartsWith("NSKVONotifying_", StringComparison.Ordinal) == true;
     }
 
     /// <summary>

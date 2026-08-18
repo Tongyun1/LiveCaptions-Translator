@@ -52,7 +52,10 @@ public partial class MainWindow : Window
         Opened += (_, _) => LoadDevices();
         Closed += (_, _) =>
         {
-            _overlay?.Close();
+            // 悬浮窗只隐藏不销毁：在主窗口的原生关闭流程（windowWillClose:）里
+            // 销毁另一个窗口容易触发 AppKit 内部的重入问题；
+            // 应用采用 OnMainWindowClose 退出模式，不会因此残留进程。
+            _overlay?.Hide();
             _history?.Close();
             _source?.Dispose();
         };

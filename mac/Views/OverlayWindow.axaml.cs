@@ -19,7 +19,10 @@ public partial class OverlayWindow : Window
     private double _originalFontSize = 15;
 
     private bool _resizing;
-    private bool _panelConverted;
+
+    /// <summary>NSPanel 转换前的原始窗口类，关闭前需还原。</summary>
+    private IntPtr _originalWindowClass = IntPtr.Zero;
+    private bool _closing;
 
     public OverlayWindow()
     {
@@ -45,6 +48,11 @@ public partial class OverlayWindow : Window
             // 延迟再设一次,对抗 Avalonia 在窗口完全就绪后可能的层级重置
             DispatcherTimer.RunOnce(ConvertToPanel, TimeSpan.FromMilliseconds(500));
         };
+        Closing += (_, _) =>
+        {
+            _closing = true;
+            RestoreWindowClass();
+        };
     }
 
     /// <summary>
@@ -52,18 +60,43 @@ public partial class OverlayWindow : Window
     /// </summary>
     private void ConvertToPanel()
     {
-        if (_panelConverted || !OperatingSystem.IsMacOS())
+        if (_closing || _originalWindowClass != IntPtr.Zero || !OperatingSystem.IsMacOS())
             return;
         try
         {
             var platformHandle = TryGetPlatformHandle();
-            IntPtr handle = platformHandle?.Handle ?? IntPtr.Zero;
-            _panelConverted = MacWindowInterop.ConvertToFloatingPanel(
-                handle, platformHandle?.HandleDescriptor);
+            _originalWindowClass = MacWindowInterop.ConvertToFloatingPanel(
+                platformHandle?.Handle ?? IntPtr.Zero, platformHandle?.HandleDescriptor);
         }
         catch (Exception ex)
         {
             Console.Error.WriteLine($"[OverlayWindow] NSPanel 转换失败: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// 关闭前还原窗口类。不还原的话，NSWindow dealloc 时 AppKit 注销 KVO
+    /// 观察者会因为 isa 已被替换而抛 NSRangeException，导致退出时崩溃。
+    /// </summary>
+    private void RestoreWindowClass()
+    {
+        if (_originalWindowClass == IntPtr.Zero || !OperatingSystem.IsMacOS())
+            return;
+        try
+        {
+            var platformHandle = TryGetPlatformHandle();
+            MacWindowInterop.RestoreClass(
+                platformHandle?.Handle ?? IntPtr.Zero,
+                platformHandle?.HandleDescriptor,
+                _originalWindowClass);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[OverlayWindow] 还原窗口类失败: {ex.Message}");
+        }
+        finally
+        {
+            _originalWindowClass = IntPtr.Zero;
         }
     }
 
