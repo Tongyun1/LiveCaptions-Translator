@@ -96,7 +96,3 @@ mac/
 ├── Models/                       数据模型（设置、翻译配置）
 └── Utils/                        路径、macOS 原生互操作
 ```
-
-## 开发进展
-
-详见 [PROGRESS.md](./PROGRESS.md)。
