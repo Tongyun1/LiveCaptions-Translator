@@ -144,34 +144,63 @@ public sealed class WhisperCaptionSource : ICaptionSource, IDisposable
                 break;
             }
 
-            float[] snapshot;
-            bool commit;
-            lock (_bufferLock)
+            try
             {
-                if (_utterance.Count < MinProcessSamples)
-                    continue;
-
-                snapshot = _utterance.ToArray();
-                double silenceMs = (DateTime.UtcNow - _lastVoiceUtc).TotalMilliseconds;
-                commit = silenceMs > SilenceCommitMs || snapshot.Length >= MaxUtteranceSamples;
-            }
-
-            string text = await TranscribeAsync(snapshot, token);
-            if (!string.IsNullOrWhiteSpace(text))
-                CaptionReceived?.Invoke(this, text);
-
-            if (commit)
-            {
+                float[] snapshot;
+                bool commit;
                 lock (_bufferLock)
                 {
-                    // 仅移除已识别部分，保留识别期间新到达的样本
-                    if (_utterance.Count >= snapshot.Length)
-                        _utterance.RemoveRange(0, snapshot.Length);
-                    else
-                        _utterance.Clear();
+                    if (_utterance.Count < MinProcessSamples)
+                        continue;
+
+                    snapshot = _utterance.ToArray();
+                    double silenceMs = (DateTime.UtcNow - _lastVoiceUtc).TotalMilliseconds;
+                    commit = silenceMs > SilenceCommitMs || snapshot.Length >= MaxUtteranceSamples;
+                }
+
+                // 跳过纯静音片段：避免 Whisper 对静音产生幻觉文本，也减少无谓计算
+                if (HasVoice(snapshot))
+                {
+                    string text = await TranscribeAsync(snapshot, token);
+                    if (!string.IsNullOrWhiteSpace(text))
+                        CaptionReceived?.Invoke(this, text);
+                }
+
+                if (commit)
+                {
+                    lock (_bufferLock)
+                    {
+                        // 仅移除已识别部分，保留识别期间新到达的样本
+                        if (_utterance.Count >= snapshot.Length)
+                            _utterance.RemoveRange(0, snapshot.Length);
+                        else
+                            _utterance.Clear();
+                    }
                 }
             }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+            catch (Exception ex)
+            {
+                // 关键：单次识别失败绝不能终止整个循环，否则字幕会永久卡住。
+                Console.Error.WriteLine($"[WhisperCaptionSource] 识别循环异常，已跳过本次: {ex.Message}");
+            }
         }
+    }
+
+    /// <summary>判断一段样本是否含有语音（用峰值粗判，纯静音的峰值接近 0）。</summary>
+    private static bool HasVoice(float[] samples)
+    {
+        float peak = 0f;
+        for (int i = 0; i < samples.Length; i++)
+        {
+            float a = Math.Abs(samples[i]);
+            if (a > peak)
+                peak = a;
+        }
+        return peak >= 0.02f;
     }
 
     private async Task<string> TranscribeAsync(float[] samples, CancellationToken token)
