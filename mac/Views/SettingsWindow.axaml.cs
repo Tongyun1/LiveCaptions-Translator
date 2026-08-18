@@ -35,18 +35,18 @@ public partial class SettingsWindow : Window
 
     private static string DescribeEngine(RecognitionEngine e) => e switch
     {
+        RecognitionEngine.AppleSpeech => "macOS 系统语音识别（默认）",
         RecognitionEngine.Whisper => "Whisper（本地）",
-        RecognitionEngine.AppleSpeech => "macOS 系统语音识别",
         _ => e.ToString()
     };
 
     private static string EngineHint(RecognitionEngine e) => e switch
     {
-        RecognitionEngine.Whisper =>
-            "约 99 种语言全部本地识别，音频不上传；首次使用需下载模型（最小 31MB）。",
         RecognitionEngine.AppleSpeech =>
             "无需下载模型、延迟更低。仅英文与中文可离线，其余语言由苹果服务器识别（音频会上传）。\n" +
-            "需要以 .app 方式启动并授予语音识别权限；仅 Apple Silicon 上可离线。",
+            "需以 .app 方式启动并授予语音识别权限；仅 Apple Silicon 上可离线。从源码运行时会自动退回 Whisper。",
+        RecognitionEngine.Whisper =>
+            "约 99 种语言全部本地识别，音频不上传；首次使用需下载模型（最小 31MB）。",
         _ => string.Empty
     };
 

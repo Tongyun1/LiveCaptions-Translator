@@ -30,6 +30,9 @@ public partial class MainWindow : Window
     private OverlayWindow? _overlay;
     private HistoryWindow? _history;
 
+    /// <summary>引擎选择上需要告知用户的说明（如自动退回）。</summary>
+    private string? _engineNote;
+
     public MainWindow()
     {
         InitializeComponent();
@@ -70,8 +73,18 @@ public partial class MainWindow : Window
             ? "BlackHole"
             : settings.PreferredAudioDevice!;
 
+        _engineNote = null;
+
         if (settings.Engine == RecognitionEngine.AppleSpeech && OperatingSystem.IsMacOS())
-            return new AppleSpeechCaptionSource(settings.AppleSpeechLocale, preferred);
+        {
+            if (AppPaths.IsRunningInAppBundle)
+                return new AppleSpeechCaptionSource(settings.AppleSpeechLocale, preferred);
+
+            // 从源码运行时拿不到系统授权，直接失败对开发者并不友好；
+            // 改为退回 Whisper，并在状态栏说清原因（不静默切换）。
+            _engineNote = "注意：从源码运行时无法使用系统语音识别（拿不到系统授权），" +
+                          "本次已改用 Whisper。需要系统识别请先用 package-app.sh 打包成 .app。";
+        }
 
         return new WhisperCaptionSource(
             settings.WhisperModel,
@@ -216,7 +229,8 @@ public partial class MainWindow : Window
 
             _running = true;
             StartStopButton.Content = "停止";
-            SetStatus("识别中…（说话或播放音频试试）");
+            SetStatus("识别中…（说话或播放音频试试）"
+                + (_engineNote is null ? string.Empty : "\n" + _engineNote));
         }
         catch (Exception ex)
         {

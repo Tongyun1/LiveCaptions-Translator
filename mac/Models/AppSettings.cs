@@ -7,14 +7,15 @@ namespace LiveCaptionsTranslator.Mac.Models;
 /// <summary>语音识别引擎。</summary>
 public enum RecognitionEngine
 {
-    /// <summary>本地 Whisper：约 99 种语言全离线，需下载模型。</summary>
-    Whisper,
-
     /// <summary>
-    /// macOS 系统语音识别：免模型、延迟极低，但离线仅支持英文与中文，
-    /// 其余语言由苹果服务器识别（音频会上传）；且需以 .app 方式运行以取得授权。
+    /// macOS 系统语音识别（默认）：免模型、延迟极低。
+    /// 离线仅支持英文与中文，其余语言由苹果服务器识别（音频会上传）；
+    /// 且需以 .app 方式运行以取得授权。
     /// </summary>
-    AppleSpeech
+    AppleSpeech,
+
+    /// <summary>本地 Whisper：约 99 种语言全离线，需下载模型。</summary>
+    Whisper
 }
 
 /// <summary>Whisper 模型的下载源偏好。</summary>
@@ -33,8 +34,11 @@ public enum ModelDownloadSource
 /// <summary>应用全局设置（持久化到 JSON）。</summary>
 public sealed class AppSettings
 {
-    /// <summary>使用哪个语音识别引擎。</summary>
-    public RecognitionEngine Engine { get; set; } = RecognitionEngine.Whisper;
+    /// <summary>
+    /// 使用哪个语音识别引擎。默认系统识别：免模型、开箱即用。
+    /// 从源码运行（非 .app）时拿不到系统授权，届时会自动退回 Whisper。
+    /// </summary>
+    public RecognitionEngine Engine { get; set; } = RecognitionEngine.AppleSpeech;
 
     /// <summary>系统语音识别引擎识别的语言（如 en-US、zh-CN）。</summary>
     public string AppleSpeechLocale { get; set; } = "en-US";

@@ -4,8 +4,10 @@
 
 识别有两种引擎可选：
 
-- **Whisper（默认）**：约 99 种语言全部在本机识别，音频不上传；首次使用要下载模型（最小 31MB）。
-- **macOS 系统语音识别**：不用下模型、延迟更低，但只有英文和中文能离线，其余语言会把音频传给苹果服务器。
+- **macOS 系统语音识别（默认）**：不用下模型、开箱即用、延迟极低。但只有英文和中文能离线，其余语言会把音频传给苹果服务器；且仅 Apple Silicon（M 系芯片）可离线。
+- **Whisper**：约 99 种语言全部在本机识别，音频不上传；代价是首次使用要下载模型（最小 31MB），且字幕会慢 1～3 秒。
+
+听日语、韩语、德语这类内容时，建议到设置里改用 Whisper。
 
 两种引擎识别出的**文字**都会发给翻译服务（默认 Google，可在设置里改成你自己的接口）。
 
@@ -13,31 +15,43 @@
 
 ## 开始之前，先了解两件事
 
-**1. 需要装两个东西**：微软的 .NET（用来运行程序）和 BlackHole（一个免费的虚拟声卡）。下面有完整命令，照着敲就行。
+**1. 需要装一个虚拟声卡 BlackHole**。macOS 从系统层面就不允许任何 App 直接偷听「电脑正在播放的声音」。BlackHole 的作用是给声音开一条岔路——声音一边照常进你的耳机，一边送给本程序去识别。这一步绕不过去，所有同类工具都得这么做。
 
-**2. 为什么要装 BlackHole**：macOS 从系统层面就不允许任何 App 直接偷听「电脑正在播放的声音」。BlackHole 的作用是给声音开一条岔路——声音一边照常进你的耳机，一边送给本程序去识别。这一步绕不过去，所有同类工具都得这么做。
+**2. 本应用没有经过 Apple 证书签名**，所以首次打开需要多一步手动确认（下面第 1 步有说明）。
 
 整套配置大约 10 分钟，**只需要做一次**，中间要重启一次电脑。
 
 ---
 
-## 第 1 步：装 .NET
+## 第 1 步：下载并打开应用
 
-打开「终端」(Terminal)，粘贴这行回车：
+到 [Releases](https://github.com/SakiRinn/LiveCaptions-Translator/releases) 页面下载，按你的情况选一个：
+
+| 下载哪个 | 体积 | 适合谁 |
+|---------|------|--------|
+| `...-arm64-withruntime.zip` | 46 MB | **绝大多数人选这个**，下完就能用 |
+| `...-arm64.zip` | 15 MB | 已经装了 .NET 10 运行时的人 |
+
+（芯片是 Intel 的选带 `x64` 的那个。）
+
+解压后，**把 App 拖进「应用程序」文件夹**。
+
+### 首次打开会被系统拦下，这样绕过
+
+因为没有 Apple 证书签名，直接双击会提示“无法验证开发者”。任选一种做法：
+
+**办法 A（鼠标操作）**：在 App 上**右键** → 选「打开」→ 弹窗里再点一次「打开」。
+如果右键也不行：系统设置 → 隐私与安全性 → 下拉到底部，点「仍要打开」。
+
+**办法 B（一条命令，更干脆）**：打开终端粘贴执行：
 
 ```bash
-brew install --cask dotnet-sdk
+xattr -dr com.apple.quarantine "/Applications/LiveCaptions Translator.app"
 ```
 
-> 没有 `brew` 命令？先去 [brew.sh](https://brew.sh) 装 Homebrew，或者直接从 [微软官网](https://dotnet.microsoft.com/download) 下载 .NET 10 的安装包双击安装。
+之后就能正常双击启动了，这一步只需做一次。
 
-装完确认一下，输出的数字要是 **10** 开头：
-
-```bash
-dotnet --version
-```
-
-如果提示 `command not found: dotnet`，**关掉终端重新开一个**再试（刚装好的命令需要新窗口才能认到）。
+> 为什么会这样：macOS 对从网上下载的未签名应用一律拦下。要彻底免掉这一步，需要开发者花钱买 Apple 证书并做公证。
 
 ## 第 2 步：装 BlackHole，然后重启电脑
 
@@ -45,7 +59,9 @@ dotnet --version
 brew install --cask blackhole-2ch
 ```
 
-装完**必须重启电脑**，否则系统认不到这个声卡。终端里也会提示你 `You must reboot`。
+没有 `brew` 命令？先去 [brew.sh](https://brew.sh) 装 Homebrew，或者从 [BlackHole 官方页面](https://existential.audio/blackhole/) 下载安装包双击安装。
+
+装完**必须重启电脑**，否则系统认不到这个声卡。
 
 ## 第 3 步：把声音分出一路（重启后做）
 
@@ -62,17 +78,14 @@ brew install --cask blackhole-2ch
 >
 > 改在「音频 MIDI 设置」里调：选中你的「多输出设备」，在右侧列表中点**扬声器那一行**，拖它的音量滑块。BlackHole 那行保持满音量不用动。
 
-## 第 4 步：下载并启动程序
+## 第 4 步：启动并授权
 
-```bash
-git clone https://github.com/SakiRinn/LiveCaptions-Translator.git
-cd LiveCaptions-Translator/mac
-dotnet run
-```
+双击「应用程序」里的 **LiveCaptions Translator**。
 
-第一次启动要编译，等个一两分钟，之后再启动就快了。程序窗口弹出来就成功了。
+第一次点「开始」时，系统会依次弹出两个授权请求，**两个都请允许**：
 
-以后每次启动，只要重复最后两行（`cd` 和 `dotnet run`）。
+1. **麦克风** —— 从 BlackHole 这类虚拟声卡取声，在 macOS 眼里也算麦克风。
+2. **语音识别** —— 默认使用系统识别引擎，需要这个权限。（若改用 Whisper 则不需要。）
 
 ---
 
@@ -96,16 +109,15 @@ dotnet run
 
 ### 换识别引擎
 
-点「设置」→「识别引擎」可以切换。
+点「设置」→「识别引擎」可以切换。两个引擎在下载的 App 里都能直接用。
 
-**Whisper（默认）** 开箱可用，不需额外授权。
+**macOS 系统语音识别（默认）**：不用模型、快很多，但：
 
-**macOS 系统语音识别** 有两个额外要求：
+- 首次使用会弹**语音识别**授权，请允许
+- 只有英文和中文能离线，其余语言会把音频传给苹果服务器
+- 只在 Apple Silicon（M 系芯片）上能离线
 
-1. **必须以 `.app` 方式运行** —— `dotnet run` 拿不到系统授权。先执行 `./package-app.sh`，再打开 `mac/out/` 里生成的 App。
-2. 首次点「开始」会依次请求**麦克风**和**语音识别**权限，两个都要允许。
-
-另外它只在 Apple Silicon（M 系芯片）上能离线。
+**Whisper**：语言多、全本地，但首次需下载模型，且字幕慢 1～3 秒。听非英中内容时选它。
 
 ---
 
@@ -130,7 +142,7 @@ tccutil reset SpeechRecognition io.github.sakirinn.livecaptionstranslator.mac
 
 **选了系统语音识别，报“需要以 .app 方式启动”**
 
-这个引擎要申请系统授权，而 macOS 按 App 身份发权限，`dotnet run` 这种跑法拿不到。执行 `./package-app.sh`，然后打开 `mac/out/` 里生成的 App。
+你在用源码跑（`dotnet run`）。这个引擎要申请系统授权，而 macOS 按 App 身份发权限，命令行跑法拿不到。用 Releases 里下载的 App，或自己执行 `mac/package-app.sh` 打包后再用。
 
 **下拉框里没有 BlackHole 2ch**
 
@@ -202,6 +214,20 @@ tccutil reset SpeechRecognition io.github.sakirinn.livecaptionstranslator.mac
 # 以下是给开发者的部分
 
 普通使用者不需要往下看。
+
+## 从源码构建与运行
+
+需要 [.NET SDK 10](https://dotnet.microsoft.com/download)（`brew install --cask dotnet-sdk`）。本项目目标框架是 `net10.0`，**SDK 8 编译不了**。
+
+```bash
+git clone https://github.com/SakiRinn/LiveCaptions-Translator.git
+cd LiveCaptions-Translator/mac
+dotnet run
+```
+
+若提示 `command not found: dotnet`，关掉终端重开一个（安装程序写入 `/etc/paths.d/dotnet`，需重新加载 PATH）。
+
+注意：`dotnet run` 这种方式**拿不到系统授权**，因此无法使用「系统语音识别」引擎；要测它得先 `./package-app.sh` 打包。
 
 ## 功能
 
@@ -288,6 +314,12 @@ cd mac
 - 必须用 `ditto` 而非普通 `zip` 打包，否则会丢掉符号链接与扩展属性，解压出的 `.app` 可能无法运行。
 - 脚本会删掉 `runtimes/` 里非目标平台的原生库（依赖包不区分平台全拷），约省 10MB。
 - **模型默认不内置**，首次使用时联网下载。确实需要开箱即用时，把 `ggml-*.bin` 放入 `mac/bundled-models/` 再打包，应用会优先用它。
+
+### 发一个 Release
+
+手动发：执行上面两条打包命令，把 `mac/out/` 里的 zip 上传到 GitHub Release 即可。
+
+自动发：`mac/ci/macos-release.yml.example` 是一份可用的工作流草稿（打 `v*` tag 后自动构建 arm64/x64 共四个 zip 并附到 Release）。它没有直接放进 `.github/workflows/`，因为那属于本目录之外的改动，应由仓库维护者决定是否引入。
 
 ### Gatekeeper 与签名
 
