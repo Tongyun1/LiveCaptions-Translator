@@ -26,6 +26,8 @@ public partial class MainWindow : Window
     private CancellationTokenSource? _translateCts;
     private string _lastTranslatedSource = string.Empty;
 
+    private OverlayWindow? _overlay;
+
     public MainWindow()
     {
         InitializeComponent();
@@ -40,8 +42,34 @@ public partial class MainWindow : Window
 
         RefreshButton.Click += (_, _) => LoadDevices();
         StartStopButton.Click += async (_, _) => await ToggleAsync();
+        OverlayButton.Click += (_, _) => ToggleOverlay();
         Opened += (_, _) => LoadDevices();
-        Closed += (_, _) => _source?.Dispose();
+        Closed += (_, _) =>
+        {
+            _overlay?.Close();
+            _source?.Dispose();
+        };
+    }
+
+    private void ToggleOverlay()
+    {
+        if (_overlay is not null)
+        {
+            _overlay.Close();
+            return;
+        }
+
+        _overlay = new OverlayWindow();
+        _overlay.Closed += (_, _) =>
+        {
+            _overlay = null;
+            OverlayButton.Content = "悬浮窗";
+        };
+        // 把当前已有文本先同步一份
+        _overlay.UpdateOriginal(CaptionText.Text ?? string.Empty);
+        _overlay.UpdateTranslation(TranslationText.Text ?? string.Empty);
+        _overlay.Show();
+        OverlayButton.Content = "关闭悬浮窗";
     }
 
     private void LoadDevices()
@@ -136,6 +164,7 @@ public partial class MainWindow : Window
         {
             CaptionText.Text = text;
             CaptionScroll.ScrollToEnd();
+            _overlay?.UpdateOriginal(text);
         });
 
         _ = TranslateAsync(text);
@@ -161,6 +190,7 @@ public partial class MainWindow : Window
             {
                 TranslationText.Text = translated;
                 TranslationScroll.ScrollToEnd();
+                _overlay?.UpdateTranslation(translated);
             });
         }
         catch (OperationCanceledException)

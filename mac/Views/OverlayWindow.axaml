@@ -1,0 +1,49 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d" d:DesignWidth="700" d:DesignHeight="150"
+        x:Class="LiveCaptionsTranslator.Mac.Views.OverlayWindow"
+        Width="700" Height="150"
+        MinWidth="360" MinHeight="90"
+        Title="Overlay"
+        WindowDecorations="None"
+        TransparencyLevelHint="Transparent"
+        Background="Transparent"
+        Topmost="True"
+        ShowInTaskbar="False"
+        CanResize="True">
+    <Border x:Name="RootBorder" Margin="6" CornerRadius="10"
+            Background="#B0000000">
+        <Grid>
+            <!-- 内容区 -->
+            <Grid RowDefinitions="Auto,*" Margin="14,10,14,16">
+                <!-- 右上角工具条（鼠标悬停时显示） -->
+                <StackPanel x:Name="Toolbar" Grid.Row="0" Orientation="Horizontal"
+                            HorizontalAlignment="Right" VerticalAlignment="Top"
+                            Spacing="4" IsVisible="False">
+                    <Button x:Name="FontDecreaseButton" Content="A-" Padding="6,2" FontSize="12" />
+                    <Button x:Name="FontIncreaseButton" Content="A+" Padding="6,2" FontSize="12" />
+                    <Button x:Name="CloseButton" Content="✕" Padding="6,2" FontSize="12" />
+                </StackPanel>
+
+                <StackPanel Grid.Row="1" VerticalAlignment="Center" Spacing="4">
+                    <TextBlock x:Name="TranslationText" TextWrapping="Wrap"
+                               FontSize="22" FontWeight="SemiBold" Foreground="White"
+                               Text="" />
+                    <TextBlock x:Name="OriginalText" TextWrapping="Wrap"
+                               FontSize="15" Foreground="#CCFFFFFF"
+                               Text="" />
+                </StackPanel>
+            </Grid>
+
+            <!-- 右下角缩放手柄（明显可见，位于真正的角落） -->
+            <Border x:Name="ResizeGrip" Width="22" Height="22"
+                    HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                    Margin="0,0,3,3"
+                    Background="#88FFFFFF"
+                    CornerRadius="0,0,8,0"
+                    ToolTip.Tip="拖动此角调整大小" />
+        </Grid>
+    </Border>
+</Window>
