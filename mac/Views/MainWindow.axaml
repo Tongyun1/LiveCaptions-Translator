@@ -21,7 +21,7 @@
         </Grid>
 
         <!-- 状态行 -->
-        <TextBlock Grid.Row="1" x:Name="StatusText"
+        <TextBlock Grid.Row="1" x:Name="StatusText" TextWrapping="Wrap"
                    Text="就绪。选择音频设备后点“开始”。" Opacity="0.7" Margin="0,0,0,8" />
 
         <!-- 原文 -->

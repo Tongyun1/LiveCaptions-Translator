@@ -31,6 +31,7 @@ public sealed class WhisperCaptionSource : ICaptionSource, IDisposable
 
     private readonly WhisperModel _model;
     private readonly string? _preferredDeviceNameContains;
+    private readonly IReadOnlyList<string>? _modelBaseUrls;
 
     private readonly SystemAudioCapture _capture = new();
     private readonly List<float> _utterance = new();
@@ -45,10 +46,12 @@ public sealed class WhisperCaptionSource : ICaptionSource, IDisposable
 
     public WhisperCaptionSource(
         WhisperModel model = WhisperModel.Base,
-        string? preferredDeviceNameContains = "BlackHole")
+        string? preferredDeviceNameContains = "BlackHole",
+        IReadOnlyList<string>? modelBaseUrls = null)
     {
         _model = model;
         _preferredDeviceNameContains = preferredDeviceNameContains;
+        _modelBaseUrls = modelBaseUrls;
     }
 
     /// <summary>识别到新的（或更新的）字幕文本时触发。</summary>
@@ -69,7 +72,7 @@ public sealed class WhisperCaptionSource : ICaptionSource, IDisposable
             return;
 
         string modelPath = await WhisperModelProvider.EnsureModelAsync(
-            _model, downloadProgress, cancellationToken);
+            _model, _modelBaseUrls, downloadProgress, cancellationToken);
 
         _factory = WhisperFactory.FromPath(modelPath);
         _processor = _factory.CreateBuilder()

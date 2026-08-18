@@ -61,13 +61,16 @@ public partial class MainWindow : Window
         };
     }
 
-    /// <summary>按当前设置创建字幕来源（模型 + 首选设备名）。</summary>
+    /// <summary>按当前设置创建字幕来源（模型 + 首选设备名 + 模型下载源）。</summary>
     private WhisperCaptionSource CreateSource()
     {
         string preferred = string.IsNullOrWhiteSpace(SettingsStore.Current.PreferredAudioDevice)
             ? "BlackHole"
             : SettingsStore.Current.PreferredAudioDevice!;
-        return new WhisperCaptionSource(SettingsStore.Current.WhisperModel, preferred);
+        return new WhisperCaptionSource(
+            SettingsStore.Current.WhisperModel,
+            preferred,
+            SettingsStore.Current.BuildModelBaseUrls());
     }
 
     private async Task OpenSettingsAsync()

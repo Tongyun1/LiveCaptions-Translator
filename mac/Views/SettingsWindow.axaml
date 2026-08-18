@@ -16,6 +16,16 @@
                     <TextBlock Text="Whisper 模型（越大越准但越慢，首次使用会自动下载）" Opacity="0.7" FontSize="12" />
                     <ComboBox x:Name="ModelComboBox" HorizontalAlignment="Stretch" />
                 </StackPanel>
+                <StackPanel Spacing="4">
+                    <TextBlock Text="模型下载源（自动：先试 ModelScope 国内镜像，失败回退 Hugging Face）"
+                               Opacity="0.7" FontSize="12" />
+                    <ComboBox x:Name="ModelSourceComboBox" HorizontalAlignment="Stretch" />
+                </StackPanel>
+                <StackPanel Spacing="4">
+                    <TextBlock Text="自定义下载源（可选，填了则优先尝试；需以 / 结尾）"
+                               Opacity="0.7" FontSize="12" />
+                    <TextBox x:Name="CustomModelUrlBox" />
+                </StackPanel>
 
                 <Separator Margin="0,4" />
 

@@ -14,6 +14,9 @@ public partial class SettingsWindow : Window
 {
     private readonly AppSettings _settings;
 
+    /// <summary>下拉框项对应的模型枚举（按索引对应，避免反解析展示文本）。</summary>
+    private static readonly WhisperModel[] Models = Enum.GetValues<WhisperModel>();
+
     /// <summary>是否点击了“保存”。</summary>
     public bool Saved { get; private set; }
 
@@ -22,7 +25,9 @@ public partial class SettingsWindow : Window
         InitializeComponent();
         _settings = SettingsStore.Current;
 
-        ModelComboBox.ItemsSource = Enum.GetValues<WhisperModel>().Select(m => m.ToString()).ToList();
+        ModelComboBox.ItemsSource = Models.Select(WhisperModelProvider.DescribeModel).ToList();
+        ModelSourceComboBox.ItemsSource =
+            Enum.GetValues<ModelDownloadSource>().Select(s => s.ToString()).ToList();
         EngineComboBox.ItemsSource = TranslationSettings.EngineNames;
 
         LoadFromSettings();
@@ -33,7 +38,9 @@ public partial class SettingsWindow : Window
 
     private void LoadFromSettings()
     {
-        ModelComboBox.SelectedItem = _settings.WhisperModel.ToString();
+        ModelComboBox.SelectedIndex = Math.Max(0, Array.IndexOf(Models, _settings.WhisperModel));
+        ModelSourceComboBox.SelectedItem = _settings.ModelSource.ToString();
+        CustomModelUrlBox.Text = _settings.CustomModelBaseUrl;
         EngineComboBox.SelectedItem = _settings.Translation.EngineName;
         TargetLanguageBox.Text = _settings.Translation.TargetLanguage;
         ApiUrlBox.Text = _settings.Translation.OpenAI.ApiUrl;
@@ -43,9 +50,15 @@ public partial class SettingsWindow : Window
 
     private void ApplyAndClose()
     {
-        if (ModelComboBox.SelectedItem is string modelName &&
-            Enum.TryParse<WhisperModel>(modelName, out var model))
-            _settings.WhisperModel = model;
+        if (ModelComboBox.SelectedIndex >= 0 && ModelComboBox.SelectedIndex < Models.Length)
+            _settings.WhisperModel = Models[ModelComboBox.SelectedIndex];
+
+        if (ModelSourceComboBox.SelectedItem is string sourceName &&
+            Enum.TryParse<ModelDownloadSource>(sourceName, out var source))
+            _settings.ModelSource = source;
+
+        string custom = CustomModelUrlBox.Text?.Trim() ?? string.Empty;
+        _settings.CustomModelBaseUrl = custom.Length == 0 ? null : custom;
 
         if (EngineComboBox.SelectedItem is string engine)
             _settings.Translation.EngineName = engine;
