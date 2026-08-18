@@ -9,6 +9,7 @@ using Avalonia.Threading;
 using LiveCaptionsTranslator.Mac.Captions;
 using LiveCaptionsTranslator.Mac.Models;
 using LiveCaptionsTranslator.Mac.Services;
+using LiveCaptionsTranslator.Mac.Utils;
 
 using SoundFlow.Structs;
 
@@ -18,7 +19,7 @@ public partial class MainWindow : Window
 {
     private readonly TranslationService _translation = new(SettingsStore.Current.Translation);
 
-    private WhisperCaptionSource? _source;
+    private ICaptionSource? _source;
     private DeviceInfo[] _devices = Array.Empty<DeviceInfo>();
     private bool _running;
     private bool _busy;
@@ -61,16 +62,21 @@ public partial class MainWindow : Window
         };
     }
 
-    /// <summary>按当前设置创建字幕来源（模型 + 首选设备名 + 模型下载源）。</summary>
-    private WhisperCaptionSource CreateSource()
+    /// <summary>按当前设置创建字幕来源（识别引擎 + 首选设备）。</summary>
+    private ICaptionSource CreateSource()
     {
-        string preferred = string.IsNullOrWhiteSpace(SettingsStore.Current.PreferredAudioDevice)
+        var settings = SettingsStore.Current;
+        string preferred = string.IsNullOrWhiteSpace(settings.PreferredAudioDevice)
             ? "BlackHole"
-            : SettingsStore.Current.PreferredAudioDevice!;
+            : settings.PreferredAudioDevice!;
+
+        if (settings.Engine == RecognitionEngine.AppleSpeech && OperatingSystem.IsMacOS())
+            return new AppleSpeechCaptionSource(settings.AppleSpeechLocale, preferred);
+
         return new WhisperCaptionSource(
-            SettingsStore.Current.WhisperModel,
+            settings.WhisperModel,
             preferred,
-            SettingsStore.Current.BuildModelBaseUrls());
+            settings.BuildModelBaseUrls());
     }
 
     private async Task OpenSettingsAsync()
@@ -78,12 +84,14 @@ public partial class MainWindow : Window
         var window = new SettingsWindow();
         await window.ShowDialog(this);
 
-        // 同步引擎下拉框；若改了模型且当前未运行，丢弃旧来源以便下次用新模型重建
+        // 同步引擎下拉框；若改了识别引擎/模型且当前未运行，丢弃旧来源以便下次重建
         EngineComboBox.SelectedItem = SettingsStore.Current.Translation.EngineName;
         if (window.Saved && !_running)
         {
             _source?.Dispose();
             _source = null;
+            // 设备句柄归属于旧引擎，重建后必须重新枚举，否则启动时会报无此设备
+            LoadDevices();
         }
     }
 
@@ -170,6 +178,19 @@ public partial class MainWindow : Window
         StartStopButton.IsEnabled = false;
         try
         {
+            // 从任何输入设备（包括 BlackHole 这类虚拟声卡）取声都需麦克风权限。
+            // 不先申请的话，底层只会报出“Unable to init device”之类的模糊错误。
+            if (OperatingSystem.IsMacOS())
+            {
+                SetStatus("正在确认麦克风权限（若弹出对话框请允许）…");
+                if (!await MacMicrophonePermission.EnsureAsync())
+                {
+                    SetStatus("未获得麦克风权限，无法读取音频。\n" +
+                              "请到「系统设置 → 隐私与安全性 → 麦克风」中允许本应用。");
+                    return;
+                }
+            }
+
             _source ??= CreateSource();
 
             if (DeviceComboBox.SelectedIndex >= 0 && DeviceComboBox.SelectedIndex < _devices.Length)
@@ -181,10 +202,13 @@ public partial class MainWindow : Window
                 SettingsStore.Save();
             }
 
+            bool apple = SettingsStore.Current.Engine == RecognitionEngine.AppleSpeech;
             var progress = new Progress<double>(p =>
                 Dispatcher.UIThread.Post(() => SetStatus($"首次使用，正在下载识别模型… {p:P0}")));
 
-            SetStatus("正在加载识别模型…");
+            SetStatus(apple
+                ? "正在申请系统语音识别权限（若弹出对话框请允许）…"
+                : "正在加载识别模型…");
             await _source.InitializeAsync(progress);
 
             _source.CaptionReceived += OnCaptionReceived;
