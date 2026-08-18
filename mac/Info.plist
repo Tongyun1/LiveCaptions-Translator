@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleName</key>
+    <string>LiveCaptions Translator</string>
+    <key>CFBundleDisplayName</key>
+    <string>LiveCaptions Translator</string>
+    <!-- 必须与 Contents/MacOS 下的可执行文件名一致 -->
+    <key>CFBundleExecutable</key>
+    <string>LiveCaptionsTranslator.Mac</string>
+    <key>CFBundleIdentifier</key>
+    <string>io.github.sakirinn.livecaptionstranslator.mac</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>0.1.0</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>12.0</string>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+
+    <!--
+      使用「系统语音识别」引擎时需要这两项授权说明。macOS 要求应用在 Info.plist 中
+      声明用途，否则调用 SFSpeechRecognizer 会直接终止进程。
+      注意：授权归属依赖应用作为独立进程启动（双击 .app）；若从终端作为子进程运行，
+      系统会把权限归属到父进程（终端/IDE），请求将失败。
+    -->
+    <key>NSSpeechRecognitionUsageDescription</key>
+    <string>用于把音频实时转写为字幕文本。使用「系统语音识别」引擎时需要此权限；若使用内置的 Whisper 引擎则无需授权。</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>用于从所选音频输入设备（例如 BlackHole 虚拟声卡）读取声音以生成字幕。</string>
+</dict>
+</plist>

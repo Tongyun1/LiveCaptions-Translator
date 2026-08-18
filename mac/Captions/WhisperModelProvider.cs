@@ -82,6 +82,17 @@ public static class WhisperModelProvider
         Path.Combine(AppPaths.ModelsDirectory, FileNameOf(model));
 
     /// <summary>
+    /// 若模型已随 .app 内置，返回其路径，否则返回 null。
+    /// </summary>
+    private static string? BundledPathOf(WhisperModel model)
+    {
+        if (AppPaths.BundledModelsDirectory is not { } dir)
+            return null;
+        string path = Path.Combine(dir, FileNameOf(model));
+        return File.Exists(path) && new FileInfo(path).Length > 0 ? path : null;
+    }
+
+    /// <summary>
     /// 返回本地模型文件路径，缺失时按 <paramref name="baseUrls"/> 顺序尝试下载。
     /// progress 回调传入 0~1 的下载进度。
     /// </summary>
@@ -94,6 +105,10 @@ public static class WhisperModelProvider
     {
         string fileName = FileNameOf(model);
         string path = LocalPathOf(model);
+
+        // 随 .app 内置的模型优先，完全不需联网
+        if (BundledPathOf(model) is { } bundled)
+            return bundled;
 
         // 用户手动放好的模型同样直接采用，不再联网
         if (File.Exists(path) && new FileInfo(path).Length > 0)

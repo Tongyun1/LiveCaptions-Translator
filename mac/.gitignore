@@ -1,0 +1,6 @@
+# 可选内置的识别模型：体积很大，不应进版本库。
+# 把 ggml-*.bin 放进这里再执行 package-app.sh，即可把模型打进 .app。
+bundled-models/
+
+# macOS 访达生成的目录属性文件
+.DS_Store
