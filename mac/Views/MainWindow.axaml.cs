@@ -16,7 +16,7 @@ namespace LiveCaptionsTranslator.Mac.Views;
 
 public partial class MainWindow : Window
 {
-    private readonly TranslationService _translation = new(new TranslationSettings());
+    private readonly TranslationService _translation = new(SettingsStore.Current.Translation);
 
     private WhisperCaptionSource? _source;
     private DeviceInfo[] _devices = Array.Empty<DeviceInfo>();
@@ -37,9 +37,13 @@ public partial class MainWindow : Window
         EngineComboBox.SelectionChanged += (_, _) =>
         {
             if (EngineComboBox.SelectedItem is string name)
+            {
                 _translation.Settings.EngineName = name;
+                SettingsStore.Save();
+            }
         };
 
+        SettingsButton.Click += async (_, _) => await OpenSettingsAsync();
         RefreshButton.Click += (_, _) => LoadDevices();
         StartStopButton.Click += async (_, _) => await ToggleAsync();
         OverlayButton.Click += (_, _) => ToggleOverlay();
@@ -49,6 +53,29 @@ public partial class MainWindow : Window
             _overlay?.Close();
             _source?.Dispose();
         };
+    }
+
+    /// <summary>按当前设置创建字幕来源（模型 + 首选设备名）。</summary>
+    private WhisperCaptionSource CreateSource()
+    {
+        string preferred = string.IsNullOrWhiteSpace(SettingsStore.Current.PreferredAudioDevice)
+            ? "BlackHole"
+            : SettingsStore.Current.PreferredAudioDevice!;
+        return new WhisperCaptionSource(SettingsStore.Current.WhisperModel, preferred);
+    }
+
+    private async Task OpenSettingsAsync()
+    {
+        var window = new SettingsWindow();
+        await window.ShowDialog(this);
+
+        // 同步引擎下拉框；若改了模型且当前未运行，丢弃旧来源以便下次用新模型重建
+        EngineComboBox.SelectedItem = SettingsStore.Current.Translation.EngineName;
+        if (window.Saved && !_running)
+        {
+            _source?.Dispose();
+            _source = null;
+        }
     }
 
     private void ToggleOverlay()
@@ -76,7 +103,7 @@ public partial class MainWindow : Window
     {
         try
         {
-            _source ??= new WhisperCaptionSource();
+            _source ??= CreateSource();
             _devices = _source.GetCaptureDevices();
 
             DeviceComboBox.ItemsSource = _devices
@@ -85,9 +112,15 @@ public partial class MainWindow : Window
 
             if (_devices.Length > 0 && DeviceComboBox.SelectedIndex < 0)
             {
-                int blackHole = Array.FindIndex(_devices,
-                    d => d.Name?.Contains("BlackHole", StringComparison.OrdinalIgnoreCase) == true);
-                DeviceComboBox.SelectedIndex = blackHole >= 0 ? blackHole : 0;
+                string? preferred = SettingsStore.Current.PreferredAudioDevice;
+                int index = -1;
+                if (!string.IsNullOrWhiteSpace(preferred))
+                    index = Array.FindIndex(_devices,
+                        d => string.Equals(d.Name, preferred, StringComparison.Ordinal));
+                if (index < 0)
+                    index = Array.FindIndex(_devices,
+                        d => d.Name?.Contains("BlackHole", StringComparison.OrdinalIgnoreCase) == true);
+                DeviceComboBox.SelectedIndex = index >= 0 ? index : 0;
             }
 
             SetStatus(_devices.Length > 0
@@ -115,10 +148,16 @@ public partial class MainWindow : Window
         StartStopButton.IsEnabled = false;
         try
         {
-            _source ??= new WhisperCaptionSource();
+            _source ??= CreateSource();
 
             if (DeviceComboBox.SelectedIndex >= 0 && DeviceComboBox.SelectedIndex < _devices.Length)
-                _source.SelectedDevice = _devices[DeviceComboBox.SelectedIndex];
+            {
+                DeviceInfo selected = _devices[DeviceComboBox.SelectedIndex];
+                _source.SelectedDevice = selected;
+                // 记住本次选择，下次启动自动选中
+                SettingsStore.Current.PreferredAudioDevice = selected.Name;
+                SettingsStore.Save();
+            }
 
             var progress = new Progress<double>(p =>
                 Dispatcher.UIThread.Post(() => SetStatus($"首次使用，正在下载识别模型… {p:P0}")));

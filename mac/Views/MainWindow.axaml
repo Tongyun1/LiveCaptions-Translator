@@ -8,14 +8,15 @@
         Title="LiveCaptions Translator (macOS)">
     <Grid RowDefinitions="Auto,Auto,*,*" Margin="16">
         <!-- 顶部控制栏 -->
-        <Grid Grid.Row="0" ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto,Auto" Margin="0,0,0,12">
+        <Grid Grid.Row="0" ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto,Auto,Auto" Margin="0,0,0,12">
             <TextBlock Grid.Column="0" Text="音频设备:" VerticalAlignment="Center" Margin="0,0,8,0" />
             <ComboBox Grid.Column="1" x:Name="DeviceComboBox" HorizontalAlignment="Stretch" />
             <TextBlock Grid.Column="2" Text="翻译:" VerticalAlignment="Center" Margin="12,0,8,0" />
             <ComboBox Grid.Column="3" x:Name="EngineComboBox" Width="110" />
-            <Button Grid.Column="4" x:Name="OverlayButton" Content="悬浮窗" Margin="8,0,0,0" />
-            <Button Grid.Column="5" x:Name="RefreshButton" Content="刷新" Margin="8,0,0,0" />
-            <Button Grid.Column="6" x:Name="StartStopButton" Content="开始" Width="80" Margin="8,0,0,0" />
+            <Button Grid.Column="4" x:Name="SettingsButton" Content="设置" Margin="8,0,0,0" />
+            <Button Grid.Column="5" x:Name="OverlayButton" Content="悬浮窗" Margin="8,0,0,0" />
+            <Button Grid.Column="6" x:Name="RefreshButton" Content="刷新" Margin="8,0,0,0" />
+            <Button Grid.Column="7" x:Name="StartStopButton" Content="开始" Width="80" Margin="8,0,0,0" />
         </Grid>
 
         <!-- 状态行 -->

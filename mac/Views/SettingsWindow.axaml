@@ -1,0 +1,57 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d" d:DesignWidth="480" d:DesignHeight="460"
+        x:Class="LiveCaptionsTranslator.Mac.Views.SettingsWindow"
+        Width="480" Height="460"
+        Title="设置"
+        WindowStartupLocation="CenterOwner"
+        CanResize="False">
+    <Grid RowDefinitions="*,Auto" Margin="20">
+        <ScrollViewer Grid.Row="0">
+            <StackPanel Spacing="14">
+                <TextBlock Text="语音识别" FontWeight="Bold" FontSize="15" />
+                <StackPanel Spacing="4">
+                    <TextBlock Text="Whisper 模型（越大越准但越慢，首次使用会自动下载）" Opacity="0.7" FontSize="12" />
+                    <ComboBox x:Name="ModelComboBox" HorizontalAlignment="Stretch" />
+                </StackPanel>
+
+                <Separator Margin="0,4" />
+
+                <TextBlock Text="翻译" FontWeight="Bold" FontSize="15" />
+                <StackPanel Spacing="4">
+                    <TextBlock Text="翻译引擎" Opacity="0.7" FontSize="12" />
+                    <ComboBox x:Name="EngineComboBox" HorizontalAlignment="Stretch" />
+                </StackPanel>
+                <StackPanel Spacing="4">
+                    <TextBlock Text="目标语言（如 zh-CN、en、ja、ko）" Opacity="0.7" FontSize="12" />
+                    <TextBox x:Name="TargetLanguageBox" />
+                </StackPanel>
+
+                <Separator Margin="0,4" />
+
+                <TextBlock Text="OpenAI 兼容接口（选用 OpenAI 引擎时生效）" FontWeight="Bold" FontSize="15" />
+                <StackPanel Spacing="4">
+                    <TextBlock Text="API URL" Opacity="0.7" FontSize="12" />
+                    <TextBox x:Name="ApiUrlBox" />
+                </StackPanel>
+                <StackPanel Spacing="4">
+                    <TextBlock Text="API Key" Opacity="0.7" FontSize="12" />
+                    <TextBox x:Name="ApiKeyBox" PasswordChar="•" />
+                </StackPanel>
+                <StackPanel Spacing="4">
+                    <TextBlock Text="模型名（如 gpt-4o-mini）" Opacity="0.7" FontSize="12" />
+                    <TextBox x:Name="ModelNameBox" />
+                </StackPanel>
+            </StackPanel>
+        </ScrollViewer>
+
+        <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right"
+                    Spacing="8" Margin="0,16,0,0">
+            <Button x:Name="CancelButton" Content="取消" Width="80" />
+            <Button x:Name="SaveButton" Content="保存" Width="80"
+                    Classes="accent" />
+        </StackPanel>
+    </Grid>
+</Window>
