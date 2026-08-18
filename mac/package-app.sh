@@ -78,6 +78,35 @@ if [ -d "$RUNTIMES" ]; then
     echo "==> 精简无关平台原生库：省下 $(( (BEFORE - AFTER) / 1024 )) MB（保留 ${KEEP}）"
 fi
 
+# 应用图标：复用仓库里已有的应用图标，避免再存一份二进制副本。
+# macOS 只认 .icns，所以这里用 sips + iconutil 现场转一份。
+# 源图只有 256x256，所以最大只生成到 512（256@2x），再往上放大只会发虚。
+# 图标缺失不影响应用运行，因此这里只警告不中断。
+ICON_SRC="../src/LiveCaptions-Translator.ico"
+if [ -f "$ICON_SRC" ]; then
+    ICON_TMP=$(mktemp -d)
+    ICONSET="$ICON_TMP/AppIcon.iconset"
+    mkdir -p "$ICONSET"
+    sips -s format png "$ICON_SRC" --out "$ICON_TMP/base.png" >/dev/null 2>&1
+
+    # iconutil 认固定文件名：像素尺寸 + 逻辑名
+    for spec in "16 16x16" "32 16x16@2x" "32 32x32" "64 32x32@2x" \
+                "128 128x128" "256 128x128@2x" "256 256x256" "512 256x256@2x"; do
+        px=${spec%% *}
+        name=${spec##* }
+        sips -z "$px" "$px" "$ICON_TMP/base.png" --out "$ICONSET/icon_$name.png" >/dev/null 2>&1
+    done
+
+    if iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns" 2>/dev/null; then
+        echo "==> 应用图标：已由 ${ICON_SRC##*/} 生成 AppIcon.icns"
+    else
+        echo "==> 警告：图标转换失败，应用将使用系统默认图标" >&2
+    fi
+    rm -rf "$ICON_TMP"
+else
+    echo "==> 警告：未找到 $ICON_SRC，应用将使用系统默认图标" >&2
+fi
+
 # 内置识别模型（可选，默认不内置）：模型默认在首次使用时联网下载，
 # 不计入安装包体积。如果确实想让用户开箱即用、不用联网，
 # 把 ggml-*.bin 放到 mac/bundled-models/ 后再执行本脚本即可。

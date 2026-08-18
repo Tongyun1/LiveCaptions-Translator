@@ -13,6 +13,9 @@
     <string>io.github.sakirinn.livecaptionstranslator.mac</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
+    <!-- 图标文件名（不含扩展名），由 package-app.sh 生成到 Contents/Resources -->
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <key>CFBundleShortVersionString</key>
     <string>0.1.0</string>
     <key>CFBundleVersion</key>
