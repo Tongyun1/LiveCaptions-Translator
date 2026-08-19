@@ -14,8 +14,13 @@ public static class CaptionSegmenter
     /// <summary>句中停顿，当前段过长时优先在这些位置舍弃开头。</summary>
     private static readonly char[] ClauseBreaks = ",，、;；:：—\n".ToCharArray();
 
-    /// <summary>句末标点（中英日均认，全/半角）。两个字幕源共用这一份定义。</summary>
-    private static readonly char[] SentenceEnders = "。．.！!？?".ToCharArray();
+    /// <summary>
+    /// 句末标点。两个字幕源共用这一份定义。
+    /// 含：中英日（。．.！!？?，全/半角）、阿拉伯疑问号（؟）、天城体 danda（।॥，印地等）。
+    /// 不含希腊疑问号：它实际输出为 ASCII 分号，会误伤英语等的分号。
+    /// 未收录标点的语言会退到自适应停顿分句（语言无关兜底）。
+    /// </summary>
+    private static readonly char[] SentenceEnders = "。．.！!？?؟।॥".ToCharArray();
 
     /// <summary>文本（忽略尾部空白后）是否以句末标点结尾。</summary>
     public static bool EndsWithSentenceEnder(string text)
