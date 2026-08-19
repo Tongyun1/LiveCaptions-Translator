@@ -35,14 +35,11 @@ public partial class MainWindow : Window
     // 这样既不会互相取消，又自然把频率降到“翻译能跑多快就多快”。
     // 字幕原文的显示不受此影响，仍然实时刷新。
 
-    /// <summary>已说完的句子，每一句都要翻（不能被后面的半句顶掉）。</summary>
-    private readonly ConcurrentQueue<string> _completedSentences = new();
+    /// <summary>已结束的段落，每段都要翻（不能被后面的未完成文本顶掉）。</summary>
+    private readonly ConcurrentQueue<CaptionUpdate> _completedSentences = new();
 
-    /// <summary>还在说的那半句，只留最新的一份。</summary>
+    /// <summary>还在说的那段，只留最新的一份。</summary>
     private string? _pendingPartial;
-
-    /// <summary>已入队的最后一句完整句，用于去重（识别器会反复重发同一句）。</summary>
-    private string? _lastEnqueued;
 
     /// <summary>队列上限。翻译实在跟不上时宁可丢最旧的，也不能无限堆积。</summary>
     private const int MaxQueuedSentences = 16;
@@ -50,23 +47,9 @@ public partial class MainWindow : Window
     private CancellationTokenSource? _pumpCts;
     private Task? _pumpTask;
 
+    /// <summary>上一次实际调用接口翻译的原文与译文，用于避免对相同文本重复调用。</summary>
     private string _lastTranslatedSource = string.Empty;
-
-    /// <summary>
-    /// 已写入历史的最后一句，用于判定下一条是新增还是覆写。
-    /// 放在内存而不是每次去查数据库，因为字幕每秒多次更新。
-    /// </summary>
-    private string? _lastLoggedSentence;
-    private bool _lastLoggedWasComplete;
-    private DateTime _lastLoggedAtUtc;
-
-    /// <summary>
-    /// 未说完的句子在这段时间内算草稿，可被下一句顶替；过了就当它定稿。
-    /// 识别器经常把句子边界改来改去，没这个约束就会留下一堆半句碎片；
-    /// 但如果无限期当草稿，像 [Music] 这种本来就没标点的内容会被白白覆盖掉。
-    /// 2 秒是拿真实录音测出来的均衡点。
-    /// </summary>
-    private static readonly TimeSpan DraftWindow = TimeSpan.FromSeconds(2);
+    private string _lastTranslation = string.Empty;
 
     private OverlayWindow? _overlay;
     private HistoryWindow? _history;
@@ -332,26 +315,22 @@ public partial class MainWindow : Window
         // 清掉积压的待翻内容，否则下次开始会先吐出上一次的尾巴
         while (_completedSentences.TryDequeue(out _)) { }
         Volatile.Write(ref _pendingPartial, null);
-        _lastEnqueued = null;
 
         // 不清的话，重新开始后若首句与停止前最后一句相同，会被当成重复而不翻译
         _lastTranslatedSource = string.Empty;
-        // 同理，不清的话重新开始后的第一句可能去覆写上一次的最后一条历史
-        _lastLoggedSentence = null;
+        _lastTranslation = string.Empty;
         _running = false;
         StartStopButton.Content = "开始";
         SetStatus("已停止。");
     }
 
-    private void OnCaptionReceived(object? sender, string text)
+    private void OnCaptionReceived(object? sender, CaptionUpdate update)
     {
-        // 两个引擎给的都是累计文本，直接显示会堆成一大段。只取当前那一句。
-        string sentence = CaptionSegmenter.LatestSentence(text);
-        if (!CaptionSegmenter.IsMeaningful(sentence))
+        if (!CaptionSegmenter.IsMeaningful(update.Text))
             return;
 
-        // 显示限长，但翻译与历史用完整句子：剪掉的那部分仍是上下文。
-        string display = CaptionSegmenter.ShortenForDisplay(sentence);
+        // 边界已由字幕源保证，正常不会很长；限长只是极端情况的保险。
+        string display = CaptionSegmenter.ShortenForDisplay(update.Text);
 
         Dispatcher.UIThread.Post(() =>
         {
@@ -360,38 +339,35 @@ public partial class MainWindow : Window
             _overlay?.UpdateOriginal(display);
         });
 
-        EnqueueForTranslation(sentence);
+        EnqueueForTranslation(update);
     }
 
     /// <summary>
-    /// 把字幕交给翻译泵。已说完的句子进队列逐句翻，
-    /// 还在说的半句只占一个位——反正下一瞬就会被更新的版本取代。
+    /// 把字幕交给翻译泵。已结束的段落进队列逐段翻，
+    /// 还在说的只占一个位——反正下一瞬就会被更新的版本取代。
     /// </summary>
-    private void EnqueueForTranslation(string sentence)
+    private void EnqueueForTranslation(CaptionUpdate update)
     {
-        if (CaptionSegmenter.IsComplete(sentence))
+        if (update.IsFinal)
         {
-            // 识别器在处理下一句时会反复重发已完成的这句，去重
-            if (string.Equals(sentence, _lastEnqueued, StringComparison.Ordinal))
-                return;
-            _lastEnqueued = sentence;
-
             while (_completedSentences.Count >= MaxQueuedSentences)
                 _completedSentences.TryDequeue(out _);
-            _completedSentences.Enqueue(sentence);
+            _completedSentences.Enqueue(update);
         }
         else
         {
-            Volatile.Write(ref _pendingPartial, sentence);
+            Volatile.Write(ref _pendingPartial, update.Text);
         }
     }
 
-    /// <summary>取下一个要翻的文本：完整句优先，其次是最新的半句。</summary>
-    private string? TakeNextForTranslation()
+    /// <summary>取下一个要翻的内容：已结束的优先，其次是最新的未完成文本。</summary>
+    private CaptionUpdate? TakeNextForTranslation()
     {
-        if (_completedSentences.TryDequeue(out string? completed))
+        if (_completedSentences.TryDequeue(out CaptionUpdate completed))
             return completed;
-        return Interlocked.Exchange(ref _pendingPartial, null);
+
+        string? partial = Interlocked.Exchange(ref _pendingPartial, null);
+        return partial is null ? null : new CaptionUpdate(partial, false);
     }
 
     /// <summary>
@@ -402,7 +378,7 @@ public partial class MainWindow : Window
     {
         while (!token.IsCancellationRequested)
         {
-            string? next = TakeNextForTranslation();
+            CaptionUpdate? next = TakeNextForTranslation();
             if (next is null)
             {
                 try { await Task.Delay(80, token); }
@@ -412,7 +388,7 @@ public partial class MainWindow : Window
 
             try
             {
-                await TranslateOnceAsync(next, token);
+                await TranslateOnceAsync(next.Value, token);
             }
             catch (OperationCanceledException)
             {
@@ -426,64 +402,57 @@ public partial class MainWindow : Window
         }
     }
 
-    /// <summary>
-    /// 本条历史应该覆写上一条还是新增。
-    /// </summary>
-    private bool ShouldOverwriteLastLog(string sentence)
-    {
-        if (_lastLoggedSentence is null)
-            return false;
-
-        // 同一句话的修正（识别器会回头改前面的词）
-        if (CaptionSegmenter.IsSameSentence(sentence, _lastLoggedSentence))
-            return true;
-
-        // 上一条还没说完且刚写不久，当作草稿顶掉
-        return !_lastLoggedWasComplete && DateTime.UtcNow - _lastLoggedAtUtc <= DraftWindow;
-    }
-
     /// <summary>翻译一条并更新界面与历史。由翻译泵串行调用。</summary>
-    private async Task TranslateOnceAsync(string text, CancellationToken token)
+    private async Task TranslateOnceAsync(CaptionUpdate update, CancellationToken token)
     {
-        if (string.IsNullOrWhiteSpace(text) || text == _lastTranslatedSource)
+        string text = update.Text;
+        if (string.IsNullOrWhiteSpace(text))
             return;
-        _lastTranslatedSource = text;
 
         string translated;
-        try
+        if (text == _lastTranslatedSource)
         {
-            translated = await _translation.TranslateAsync(text, token);
+            // 与上一次翻译的文本相同（常见：最后一个 partial 与 final 文本一致），
+            // 复用译文、不重复调用接口；但若是 final 仍需落库（见下）。
+            translated = _lastTranslation;
         }
-        catch (OperationCanceledException)
+        else
         {
-            throw;   // 停止识别了，交由泵退出
-        }
-        catch (Exception ex)
-        {
-            Dispatcher.UIThread.Post(() => SetStatus("翻译失败: " + ex.Message));
-            return;
+            try
+            {
+                translated = await _translation.TranslateAsync(text, token);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;   // 停止识别了，交由泵退出
+            }
+            catch (Exception ex)
+            {
+                Dispatcher.UIThread.Post(() => SetStatus("翻译失败: " + ex.Message));
+                return;
+            }
+
+            _lastTranslatedSource = text;
+            _lastTranslation = translated;
+
+            Dispatcher.UIThread.Post(() =>
+            {
+                TranslationText.Text = translated;
+                TranslationScroll.ScrollToEnd();
+                _overlay?.UpdateTranslation(translated);
+            });
         }
 
-        Dispatcher.UIThread.Post(() =>
-        {
-            TranslationText.Text = translated;
-            TranslationScroll.ScrollToEnd();
-            _overlay?.UpdateTranslation(translated);
-        });
-
-        // 仅记录成功的翻译；翻译引擎失败时会返回以 [ERROR] 开头的说明
-        if (translated.StartsWith("[ERROR]", StringComparison.Ordinal))
+        // 只有已结束的句子才入史，partial 不记；翻译失败（[ERROR]）的也不记。
+        // 每个 final 都是一个独立完整的句子，直接新增一条——不需要覆写判断。
+        if (!update.IsFinal || translated.StartsWith("[ERROR]", StringComparison.Ordinal))
             return;
 
         try
         {
             await HistoryStore.LogAsync(text, translated,
                 _translation.Settings.TargetLanguage, _translation.Settings.EngineName,
-                ShouldOverwriteLastLog(text), token);
-
-            _lastLoggedSentence = text;
-            _lastLoggedWasComplete = CaptionSegmenter.IsComplete(text);
-            _lastLoggedAtUtc = DateTime.UtcNow;
+                token: token);
         }
         catch (OperationCanceledException)
         {

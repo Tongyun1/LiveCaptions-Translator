@@ -55,16 +55,12 @@ public static class HistoryStore
     }
 
     /// <summary>
-    /// 记录一条翻译。
+    /// 新增一条翻译记录。调用方（MainWindow）只在句子已结束时才记，
+    /// 每条都是一个独立完整的句子，因此这里一律新增。
     /// </summary>
-    /// <param name="overwriteLast">
-    /// true 时覆写最新那一条而不新增。识别过程中同一句话会反复修正，
-    /// 每次都新增的话一句话能留下几十条记录。是否算同一句由调用方判定
-    /// （见 MainWindow），因为只有它知道上一句是否已说完、隔了多久。
-    /// </param>
     public static async Task LogAsync(
         string sourceText, string translatedText, string targetLanguage, string engineUsed,
-        bool overwriteLast = false, CancellationToken token = default)
+        CancellationToken token = default)
     {
         if (string.IsNullOrWhiteSpace(sourceText) || string.IsNullOrWhiteSpace(translatedText))
             return;
@@ -73,37 +69,12 @@ public static class HistoryStore
         try
         {
             await using var connection = await OpenAsync(token);
-
-            long? updateId = null;
-            if (overwriteLast)
-            {
-                await using var query = connection.CreateCommand();
-                query.CommandText = "SELECT Id FROM TranslationHistory ORDER BY Id DESC LIMIT 1";
-                object? id = await query.ExecuteScalarAsync(token);
-                if (id is not null and not DBNull)
-                    updateId = Convert.ToInt64(id);
-            }
-
             await using var command = connection.CreateCommand();
-            if (updateId.HasValue)
-            {
-                command.CommandText = """
-                    UPDATE TranslationHistory
-                    SET Timestamp = @ts, SourceText = @src, TranslatedText = @dst,
-                        TargetLanguage = @lang, EngineUsed = @engine
-                    WHERE Id = @id
-                    """;
-                command.Parameters.AddWithValue("@id", updateId.Value);
-            }
-            else
-            {
-                command.CommandText = """
-                    INSERT INTO TranslationHistory
-                        (Timestamp, SourceText, TranslatedText, TargetLanguage, EngineUsed)
-                    VALUES (@ts, @src, @dst, @lang, @engine)
-                    """;
-            }
-
+            command.CommandText = """
+                INSERT INTO TranslationHistory
+                    (Timestamp, SourceText, TranslatedText, TargetLanguage, EngineUsed)
+                VALUES (@ts, @src, @dst, @lang, @engine)
+                """;
             command.Parameters.AddWithValue("@ts", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
             command.Parameters.AddWithValue("@src", sourceText);
             command.Parameters.AddWithValue("@dst", translatedText);

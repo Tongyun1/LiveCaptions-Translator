@@ -55,8 +55,8 @@ public sealed class WhisperCaptionSource : ICaptionSource
         _modelBaseUrls = modelBaseUrls;
     }
 
-    /// <summary>识别到新的（或更新的）字幕文本时触发。</summary>
-    public event EventHandler<string>? CaptionReceived;
+    /// <summary>识别到新内容时触发。</summary>
+    public event EventHandler<CaptionUpdate>? CaptionReceived;
 
     /// <summary>用户显式选择的采集设备；为 null 时按名称自动解析。</summary>
     public DeviceInfo? SelectedDevice { get; set; }
@@ -163,12 +163,9 @@ public sealed class WhisperCaptionSource : ICaptionSource
                 }
 
                 // 跳过纯静音片段：避免 Whisper 对静音产生幻觉文本，也减少无谓计算
+                string text = string.Empty;
                 if (HasVoice(snapshot))
-                {
-                    string text = await TranscribeAsync(snapshot, token);
-                    if (!string.IsNullOrWhiteSpace(text))
-                        CaptionReceived?.Invoke(this, text);
-                }
+                    text = await TranscribeAsync(snapshot, token);
 
                 if (commit)
                 {
@@ -181,6 +178,11 @@ public sealed class WhisperCaptionSource : ICaptionSource
                             _utterance.Clear();
                     }
                 }
+
+                // commit 就是这段话的边界：要么静音足够长，要么长度到顶。
+                // 上层靠这个信号决定历史是新增还是覆写，不用自己从文本去猜。
+                if (!string.IsNullOrWhiteSpace(text))
+                    CaptionReceived?.Invoke(this, new CaptionUpdate(text, commit));
             }
             catch (OperationCanceledException)
             {
