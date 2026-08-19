@@ -121,6 +121,14 @@ fi
 echo "==> 临时签名"
 codesign --force --deep --sign - "$APP" 2>&1 | sed 's/^/    /'
 
+# macOS 会缓存应用图标，重新打包后访达/Dock 经常还显示旧的通用图标，
+# 看上去像“图标丢了”。重新注册一下就好，这不会打扰用户。
+LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
+touch "$APP"
+if [ -x "$LSREGISTER" ]; then
+    "$LSREGISTER" -f "$APP" 2>/dev/null || true
+fi
+
 # 打成可上传的压缩包。必须用 ditto：普通 zip 会丢掉符号链接与扩展属性，
 # 解压出来的 .app 可能无法运行或签名失效。
 # 命名对齐 Windows 版约定：带 -withruntime 的是自包含版。
@@ -158,3 +166,6 @@ echo "      另：临时签名每次打包都会变，系统可能因此“忘�
 echo "      若启动后报无权限或无法初始化设备，执行："
 echo "      tccutil reset Microphone ${BUNDLE_ID}"
 echo "      tccutil reset SpeechRecognition ${BUNDLE_ID}"
+echo
+echo "      若 Dock/访达里图标没更新（系统图标缓存比较顽固），执行："
+echo "      killall Dock"
