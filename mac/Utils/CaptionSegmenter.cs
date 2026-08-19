@@ -14,6 +14,23 @@ public static class CaptionSegmenter
     /// <summary>句中停顿，当前段过长时优先在这些位置舍弃开头。</summary>
     private static readonly char[] ClauseBreaks = ",，、;；:：—\n".ToCharArray();
 
+    /// <summary>句末标点（中英日均认，全/半角）。两个字幕源共用这一份定义。</summary>
+    private static readonly char[] SentenceEnders = "。．.！!？?".ToCharArray();
+
+    /// <summary>文本（忽略尾部空白后）是否以句末标点结尾。</summary>
+    public static bool EndsWithSentenceEnder(string text)
+    {
+        if (string.IsNullOrEmpty(text))
+            return false;
+        for (int i = text.Length - 1; i >= 0; i--)
+        {
+            if (char.IsWhiteSpace(text[i]))
+                continue;
+            return Array.IndexOf(SentenceEnders, text[i]) != -1;
+        }
+        return false;
+    }
+
     /// <summary>显示用的长度上限（UTF-8 字节）。超过就从开头舍弃，只留最新的那段。</summary>
     private const int DisplayMaxBytes = 220;
 

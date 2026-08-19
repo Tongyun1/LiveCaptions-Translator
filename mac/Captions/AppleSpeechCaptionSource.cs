@@ -52,6 +52,18 @@ public sealed class AppleSpeechCaptionSource : ICaptionSource
     /// <summary>长句只需这么短的停顿（一个换气就切）。</summary>
     private static readonly TimeSpan ShortPause = TimeSpan.FromMilliseconds(400);
 
+    // ---- 句末标点作为强边界 ----
+    //
+    // 中日文识别可靠地带句号（。！？），而按字符长度定的阈值是按英文词密度校
+    // 准的（中日文单位字符信息量大 2~3 倍），导致多句被并进一条。
+    // 文本以句末标点结尾时，只需很短的确认就切；英文标点稀疏，无标点时仍走自适应停顿。
+
+    /// <summary>带标点时的最短成句长度（标点已确认句子完整，可比 MinCommitChars 低）。</summary>
+    private const int PunctMinChars = 4;
+
+    /// <summary>带句末标点时的确认停顿（防止标点是识别器一闪而过的误报）。</summary>
+    private static readonly TimeSpan PunctPause = TimeSpan.FromMilliseconds(300);
+
     /// <summary>
     /// 单个识别任务的时长上限。系统对一次任务有约 1 分钟限制，
     /// 到点必须换（这是唯一会丢少量音频的地方），否则识别会静默停止。
@@ -96,10 +108,11 @@ public sealed class AppleSpeechCaptionSource : ICaptionSource
     private double _lastChangeSeconds;
 
     private bool _initialized;
-    private bool _running;
+    private volatile bool _running;
 
-    /// <summary>当前活跃实例。系统回调是静态的，用它把文本路由回实例。</summary>
-    private static AppleSpeechCaptionSource? _active;
+    /// <summary>当前活跃实例。系统回调是静态的，用它把文本路由回实例。
+    /// UI 线程写、回调线程读，用 volatile 保证可见性。</summary>
+    private static volatile AppleSpeechCaptionSource? _active;
 
     public AppleSpeechCaptionSource(
         string localeId = "en-US",
@@ -279,6 +292,13 @@ public sealed class AppleSpeechCaptionSource : ICaptionSource
         if (len >= MaxUtteranceChars)
             return true;
 
+        double idle = _audioSeconds - _lastChangeSeconds;
+
+        // 句末标点是强边界（中日文可靠带。！？）：短暂确认后就切，不再等自适应停顿
+        if (len >= PunctMinChars && CaptionSegmenter.EndsWithSentenceEnder(_currentText)
+            && idle > PunctPause.TotalSeconds)
+            return true;
+
         // 太短不单独成句，继续攒
         if (len < MinCommitChars)
             return false;
@@ -288,7 +308,7 @@ public sealed class AppleSpeechCaptionSource : ICaptionSource
         t = Math.Clamp(t, 0.0, 1.0);
         double needSec = LongPause.TotalSeconds - t * (LongPause.TotalSeconds - ShortPause.TotalSeconds);
 
-        return _audioSeconds - _lastChangeSeconds > needSec;
+        return idle > needSec;
     }
 
     /// <summary>把一批样本存入预滚环形缓冲，超出时长上限就丢最旧的。调用方需持有 <see cref="_lock"/>。</summary>

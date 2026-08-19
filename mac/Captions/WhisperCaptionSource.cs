@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 
 using LiveCaptionsTranslator.Mac.Audio;
+using LiveCaptionsTranslator.Mac.Utils;
 
 using SoundFlow.Structs;
 
@@ -25,10 +26,11 @@ public sealed class WhisperCaptionSource : ICaptionSource
     private const int SampleRate = SystemAudioCapture.SampleRate;
     private const int IntervalMs = 700;                    // 识别节奏
     private const int MinProcessSamples = SampleRate / 2;  // 至少 0.5s 才识别
-    private const int MaxUtteranceSamples = SampleRate * 15; // 单段话语上限 15s
+    private const int MaxUtteranceSamples = SampleRate * 10; // 单段话语上限 10s（无标点时的兜底）
     private const double SilenceRmsThreshold = 0.012;      // 静音判定阈值（均方根）
     private const float VoicePeakThreshold = 0.02f;        // 含语音判定阈值（峰值）
     private const int SilenceCommitMs = 800;               // 静音超过该时长则提交
+    private const int PunctSilenceMs = 350;                // 文本以句末标点结尾时，只需这么短的静音就提交
 
     private readonly WhisperModel _model;
     private readonly string? _preferredDeviceNameContains;
@@ -151,21 +153,27 @@ public sealed class WhisperCaptionSource : ICaptionSource
             try
             {
                 float[] snapshot;
-                bool commit;
+                double silenceMs;
                 lock (_bufferLock)
                 {
                     if (_utterance.Count < MinProcessSamples)
                         continue;
 
                     snapshot = _utterance.ToArray();
-                    double silenceMs = (DateTime.UtcNow - _lastVoiceUtc).TotalMilliseconds;
-                    commit = silenceMs > SilenceCommitMs || snapshot.Length >= MaxUtteranceSamples;
+                    silenceMs = (DateTime.UtcNow - _lastVoiceUtc).TotalMilliseconds;
                 }
 
                 // 跳过纯静音片段：避免 Whisper 对静音产生幻觉文本，也减少无谓计算
                 string text = string.Empty;
                 if (HasVoice(snapshot))
                     text = await TranscribeAsync(snapshot, token);
+
+                // 提交（定稿）条件：
+                // 1) 长度到顶（无标点时的兜底）；2) 静音足够长；
+                // 3) 文本以句末标点结尾且有短静音——Whisper 标点可靠，这是最干净的切句点。
+                bool commit = snapshot.Length >= MaxUtteranceSamples
+                    || silenceMs > SilenceCommitMs
+                    || (CaptionSegmenter.EndsWithSentenceEnder(text) && silenceMs > PunctSilenceMs);
 
                 if (commit)
                 {
@@ -179,8 +187,7 @@ public sealed class WhisperCaptionSource : ICaptionSource
                     }
                 }
 
-                // commit 就是这段话的边界：要么静音足够长，要么长度到顶。
-                // 上层靠这个信号决定历史是新增还是覆写，不用自己从文本去猜。
+                // commit 就是这段话的边界。上层靠这个信号决定历史是新增还是更新。
                 if (!string.IsNullOrWhiteSpace(text))
                     CaptionReceived?.Invoke(this, new CaptionUpdate(text, commit));
             }
