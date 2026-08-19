@@ -55,12 +55,16 @@ public static class HistoryStore
     }
 
     /// <summary>
-    /// 记录一条翻译。为避免识别过程中的中间结果刷屏，
-    /// 若最新一条的原文是本次原文的前缀（即同一句话的延续），则覆盖它而非新增。
+    /// 记录一条翻译。
     /// </summary>
+    /// <param name="overwriteLast">
+    /// true 时覆写最新那一条而不新增。识别过程中同一句话会反复修正，
+    /// 每次都新增的话一句话能留下几十条记录。是否算同一句由调用方判定
+    /// （见 MainWindow），因为只有它知道上一句是否已说完、隔了多久。
+    /// </param>
     public static async Task LogAsync(
         string sourceText, string translatedText, string targetLanguage, string engineUsed,
-        CancellationToken token = default)
+        bool overwriteLast = false, CancellationToken token = default)
     {
         if (string.IsNullOrWhiteSpace(sourceText) || string.IsNullOrWhiteSpace(translatedText))
             return;
@@ -70,20 +74,14 @@ public static class HistoryStore
         {
             await using var connection = await OpenAsync(token);
 
-            // 查最新一条，判断是否为同一句话的延续
             long? updateId = null;
-            await using (var query = connection.CreateCommand())
+            if (overwriteLast)
             {
-                query.CommandText =
-                    "SELECT Id, SourceText FROM TranslationHistory ORDER BY Id DESC LIMIT 1";
-                await using var reader = await query.ExecuteReaderAsync(token);
-                if (await reader.ReadAsync(token))
-                {
-                    long id = reader.GetInt64(0);
-                    string previous = reader.GetString(1);
-                    if (sourceText.StartsWith(previous, StringComparison.Ordinal))
-                        updateId = id;
-                }
+                await using var query = connection.CreateCommand();
+                query.CommandText = "SELECT Id FROM TranslationHistory ORDER BY Id DESC LIMIT 1";
+                object? id = await query.ExecuteScalarAsync(token);
+                if (id is not null and not DBNull)
+                    updateId = Convert.ToInt64(id);
             }
 
             await using var command = connection.CreateCommand();

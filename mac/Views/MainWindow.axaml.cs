@@ -27,6 +27,22 @@ public partial class MainWindow : Window
     private CancellationTokenSource? _translateCts;
     private string _lastTranslatedSource = string.Empty;
 
+    /// <summary>
+    /// 已写入历史的最后一句，用于判定下一条是新增还是覆写。
+    /// 放在内存而不是每次去查数据库，因为字幕每秒多次更新。
+    /// </summary>
+    private string? _lastLoggedSentence;
+    private bool _lastLoggedWasComplete;
+    private DateTime _lastLoggedAtUtc;
+
+    /// <summary>
+    /// 未说完的句子在这段时间内算草稿，可被下一句顶替；过了就当它定稿。
+    /// 识别器经常把句子边界改来改去，没这个约束就会留下一堆半句碎片；
+    /// 但如果无限期当草稿，像 [Music] 这种本来就没标点的内容会被白白覆盖掉。
+    /// 2 秒是拿真实录音测出来的均衡点。
+    /// </summary>
+    private static readonly TimeSpan DraftWindow = TimeSpan.FromSeconds(2);
+
     private OverlayWindow? _overlay;
     private HistoryWindow? _history;
 
@@ -281,6 +297,8 @@ public partial class MainWindow : Window
         _translateCts?.Cancel();
         // 不清的话，重新开始后若首句与停止前最后一句相同，会被当成重复而不翻译
         _lastTranslatedSource = string.Empty;
+        // 同理，不清的话重新开始后的第一句可能去覆写上一次的最后一条历史
+        _lastLoggedSentence = null;
         _running = false;
         StartStopButton.Content = "开始";
         SetStatus("已停止。");
@@ -288,14 +306,35 @@ public partial class MainWindow : Window
 
     private void OnCaptionReceived(object? sender, string text)
     {
+        // 两个引擎给的都是累计文本，直接显示会堆成一大段。只取当前那一句。
+        string sentence = CaptionSegmenter.LatestSentence(text);
+        if (!CaptionSegmenter.IsMeaningful(sentence))
+            return;
+
         Dispatcher.UIThread.Post(() =>
         {
-            CaptionText.Text = text;
+            CaptionText.Text = sentence;
             CaptionScroll.ScrollToEnd();
-            _overlay?.UpdateOriginal(text);
+            _overlay?.UpdateOriginal(sentence);
         });
 
-        _ = TranslateAsync(text);
+        _ = TranslateAsync(sentence);
+    }
+
+    /// <summary>
+    /// 本条历史应该覆写上一条还是新增。
+    /// </summary>
+    private bool ShouldOverwriteLastLog(string sentence)
+    {
+        if (_lastLoggedSentence is null)
+            return false;
+
+        // 同一句话的修正（识别器会回头改前面的词）
+        if (CaptionSegmenter.IsSameSentence(sentence, _lastLoggedSentence))
+            return true;
+
+        // 上一条还没说完且刚写不久，当作草稿顶掉
+        return !_lastLoggedWasComplete && DateTime.UtcNow - _lastLoggedAtUtc <= DraftWindow;
     }
 
     private async Task TranslateAsync(string text)
@@ -342,7 +381,12 @@ public partial class MainWindow : Window
         try
         {
             await HistoryStore.LogAsync(text, translated,
-                _translation.Settings.TargetLanguage, _translation.Settings.EngineName);
+                _translation.Settings.TargetLanguage, _translation.Settings.EngineName,
+                ShouldOverwriteLastLog(text));
+
+            _lastLoggedSentence = text;
+            _lastLoggedWasComplete = CaptionSegmenter.IsComplete(text);
+            _lastLoggedAtUtc = DateTime.UtcNow;
         }
         catch (Exception ex)
         {
