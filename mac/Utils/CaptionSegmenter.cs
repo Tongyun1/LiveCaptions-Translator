@@ -76,6 +76,51 @@ public static class CaptionSegmenter
 
     private static bool IsSentenceEnder(char ch) => Array.IndexOf(SentenceEnders, ch) != -1;
 
+    /// <summary>句中停顿，当前句过长时优先在这些位置舍弃开头。</summary>
+    private static readonly char[] ClauseBreaks = ",，、;；:：—\n".ToCharArray();
+
+    /// <summary>
+    /// 显示用的长度上限（UTF-8字节）。超过就从开头舍弃，只留最新的那段。
+    /// </summary>
+    private const int DisplayMaxBytes = 220;
+
+    /// <summary>
+    /// 显示前的限长。仅用于显示；翻译与历史仍用完整句子，不能把上下文剪掉。
+    ///
+    /// 为什么需要它：切句依赖句末标点，而识别结果并不保证有标点
+    /// （系统识别在 macOS 13 以前拿不到 addsPunctuation）。没标点时无处可切，
+    /// 字幕框会堆成一大段，所以这里做最后一道兵。
+    /// </summary>
+    public static string ShortenForDisplay(string text)
+    {
+        if (string.IsNullOrEmpty(text) || Encoding.UTF8.GetByteCount(text) < DisplayMaxBytes)
+            return text;
+
+        // 先按句中停顿舍，读起来最自然
+        while (Encoding.UTF8.GetByteCount(text) >= DisplayMaxBytes)
+        {
+            int cut = text.IndexOfAny(ClauseBreaks);
+            if (cut < 0 || cut + 1 >= text.Length)
+                break;
+            text = text[(cut + 1)..].TrimStart();
+        }
+
+        // 连逗号都没有的长串（实测中确实出现过），退而按词舍
+        while (Encoding.UTF8.GetByteCount(text) >= DisplayMaxBytes)
+        {
+            int space = text.IndexOf(' ');
+            if (space < 0 || space + 1 >= text.Length)
+            {
+                // 中日文这种不用空格分词的，只能按字舍
+                text = text[1..];
+                continue;
+            }
+            text = text[(space + 1)..];
+        }
+
+        return text;
+    }
+
     /// <summary>这句话是否已说完（以句末标点结尾）。</summary>
     public static bool IsComplete(string text)
     {

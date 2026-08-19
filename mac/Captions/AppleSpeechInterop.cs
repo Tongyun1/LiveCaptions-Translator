@@ -45,6 +45,8 @@ internal static class AppleSpeechInterop
     [DllImport(Objc, EntryPoint = "objc_msgSend")] private static extern long SendLong(IntPtr r, IntPtr s);
     [DllImport(Objc, EntryPoint = "objc_msgSend")] [return: MarshalAs(UnmanagedType.I1)]
     private static extern bool SendBool(IntPtr r, IntPtr s);
+    [DllImport(Objc, EntryPoint = "objc_msgSend")] [return: MarshalAs(UnmanagedType.I1)]
+    private static extern bool SendBoolSel(IntPtr r, IntPtr s, IntPtr a);
     [DllImport(Objc, EntryPoint = "objc_msgSend")]
     private static extern void SendVoidBool(IntPtr r, IntPtr s, [MarshalAs(UnmanagedType.I1)] bool a);
     [DllImport(Objc, EntryPoint = "objc_msgSend")]
@@ -196,6 +198,13 @@ internal static class AppleSpeechInterop
         SendVoidBool(req, Sel("setShouldReportPartialResults:"), true);
         if (requireOnDevice)
             SendVoidBool(req, Sel("setRequiresOnDeviceRecognition:"), true);
+
+        // 系统识别默认不加标点（已实测 addsPunctuation 默认为 false），
+        // 于是整段话下来没有一个句末标点，字幕就无处可切、只能一直堆。
+        // 该属性要 macOS 13+，而本应用声明支持 12.0，因此先探测再设。
+        if (SendBoolSel(req, Sel("respondsToSelector:"), Sel("setAddsPunctuation:")))
+            SendVoidBool(req, Sel("setAddsPunctuation:"), true);
+
         return req;
     }
 

@@ -311,11 +311,14 @@ public partial class MainWindow : Window
         if (!CaptionSegmenter.IsMeaningful(sentence))
             return;
 
+        // 显示限长，但翻译与历史用完整句子：剪掉的那部分仍是上下文。
+        string display = CaptionSegmenter.ShortenForDisplay(sentence);
+
         Dispatcher.UIThread.Post(() =>
         {
-            CaptionText.Text = sentence;
+            CaptionText.Text = display;
             CaptionScroll.ScrollToEnd();
-            _overlay?.UpdateOriginal(sentence);
+            _overlay?.UpdateOriginal(display);
         });
 
         _ = TranslateAsync(sentence);
