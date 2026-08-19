@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -24,7 +25,31 @@ public partial class MainWindow : Window
     private bool _running;
     private bool _busy;
 
-    private CancellationTokenSource? _translateCts;
+    // ---- 翻译节流 ----
+    //
+    // 字幕更新比翻译完成快得多（实测：系统识别约每 285ms 一次结果，
+    // 一次翻译却要约 881ms）。若每条字幕都发起翻译并取消上一条，
+    // 结果是几乎每次翻译都在完成前被杀 —— 译文和历史都大量丢失。
+    //
+    // 改成用一个串行的“泵”：字幕只往里放，泵做完一条再取最新的一条。
+    // 这样既不会互相取消，又自然把频率降到“翻译能跑多快就多快”。
+    // 字幕原文的显示不受此影响，仍然实时刷新。
+
+    /// <summary>已说完的句子，每一句都要翻（不能被后面的半句顶掉）。</summary>
+    private readonly ConcurrentQueue<string> _completedSentences = new();
+
+    /// <summary>还在说的那半句，只留最新的一份。</summary>
+    private string? _pendingPartial;
+
+    /// <summary>已入队的最后一句完整句，用于去重（识别器会反复重发同一句）。</summary>
+    private string? _lastEnqueued;
+
+    /// <summary>队列上限。翻译实在跟不上时宁可丢最旧的，也不能无限堆积。</summary>
+    private const int MaxQueuedSentences = 16;
+
+    private CancellationTokenSource? _pumpCts;
+    private Task? _pumpTask;
+
     private string _lastTranslatedSource = string.Empty;
 
     /// <summary>
@@ -270,6 +295,9 @@ public partial class MainWindow : Window
             _source.CaptionReceived += OnCaptionReceived;
             _source.Start();
 
+            _pumpCts = new CancellationTokenSource();
+            _pumpTask = Task.Run(() => TranslatePumpAsync(_pumpCts.Token));
+
             _running = true;
             StartStopButton.Content = "停止";
             SetStatus("识别中…（说话或播放音频试试）"
@@ -294,7 +322,18 @@ public partial class MainWindow : Window
             _source.Stop();
         }
 
-        _translateCts?.Cancel();
+        _pumpCts?.Cancel();
+        try { _pumpTask?.Wait(TimeSpan.FromSeconds(2)); }
+        catch (AggregateException) { /* 取消引起的异常，忽略 */ }
+        _pumpCts?.Dispose();
+        _pumpCts = null;
+        _pumpTask = null;
+
+        // 清掉积压的待翻内容，否则下次开始会先吐出上一次的尾巴
+        while (_completedSentences.TryDequeue(out _)) { }
+        Volatile.Write(ref _pendingPartial, null);
+        _lastEnqueued = null;
+
         // 不清的话，重新开始后若首句与停止前最后一句相同，会被当成重复而不翻译
         _lastTranslatedSource = string.Empty;
         // 同理，不清的话重新开始后的第一句可能去覆写上一次的最后一条历史
@@ -321,7 +360,70 @@ public partial class MainWindow : Window
             _overlay?.UpdateOriginal(display);
         });
 
-        _ = TranslateAsync(sentence);
+        EnqueueForTranslation(sentence);
+    }
+
+    /// <summary>
+    /// 把字幕交给翻译泵。已说完的句子进队列逐句翻，
+    /// 还在说的半句只占一个位——反正下一瞬就会被更新的版本取代。
+    /// </summary>
+    private void EnqueueForTranslation(string sentence)
+    {
+        if (CaptionSegmenter.IsComplete(sentence))
+        {
+            // 识别器在处理下一句时会反复重发已完成的这句，去重
+            if (string.Equals(sentence, _lastEnqueued, StringComparison.Ordinal))
+                return;
+            _lastEnqueued = sentence;
+
+            while (_completedSentences.Count >= MaxQueuedSentences)
+                _completedSentences.TryDequeue(out _);
+            _completedSentences.Enqueue(sentence);
+        }
+        else
+        {
+            Volatile.Write(ref _pendingPartial, sentence);
+        }
+    }
+
+    /// <summary>取下一个要翻的文本：完整句优先，其次是最新的半句。</summary>
+    private string? TakeNextForTranslation()
+    {
+        if (_completedSentences.TryDequeue(out string? completed))
+            return completed;
+        return Interlocked.Exchange(ref _pendingPartial, null);
+    }
+
+    /// <summary>
+    /// 翻译泵：串行处理，一条做完再取下一条。
+    /// 空闲时短睡一下就行，这点延迟相比翻译本身的耗时可忽略。
+    /// </summary>
+    private async Task TranslatePumpAsync(CancellationToken token)
+    {
+        while (!token.IsCancellationRequested)
+        {
+            string? next = TakeNextForTranslation();
+            if (next is null)
+            {
+                try { await Task.Delay(80, token); }
+                catch (OperationCanceledException) { break; }
+                continue;
+            }
+
+            try
+            {
+                await TranslateOnceAsync(next, token);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+            catch (Exception ex)
+            {
+                // 单条失败不能终止泵，否则之后永远不再出译文
+                Console.Error.WriteLine($"[MainWindow] 翻译泵异常，已跳过本条: {ex.Message}");
+            }
+        }
     }
 
     /// <summary>
@@ -340,35 +442,27 @@ public partial class MainWindow : Window
         return !_lastLoggedWasComplete && DateTime.UtcNow - _lastLoggedAtUtc <= DraftWindow;
     }
 
-    private async Task TranslateAsync(string text)
+    /// <summary>翻译一条并更新界面与历史。由翻译泵串行调用。</summary>
+    private async Task TranslateOnceAsync(string text, CancellationToken token)
     {
         if (string.IsNullOrWhiteSpace(text) || text == _lastTranslatedSource)
             return;
         _lastTranslatedSource = text;
 
-        // 新请求取代旧请求。不在这里 Dispose 旧 CTS：旧请求可能还在用它的 token，
-        // 立即释放会让那边抛 ObjectDisposedException；普通 CTS 由 GC 回收即可。
-        _translateCts?.Cancel();
-        var cts = new CancellationTokenSource();
-        _translateCts = cts;
-
         string translated;
         try
         {
-            translated = await _translation.TranslateAsync(text, cts.Token);
+            translated = await _translation.TranslateAsync(text, token);
         }
         catch (OperationCanceledException)
         {
-            return;   // 被新的翻译请求取代
+            throw;   // 停止识别了，交由泵退出
         }
         catch (Exception ex)
         {
             Dispatcher.UIThread.Post(() => SetStatus("翻译失败: " + ex.Message));
             return;
         }
-
-        if (cts.IsCancellationRequested)
-            return;
 
         Dispatcher.UIThread.Post(() =>
         {
@@ -385,11 +479,15 @@ public partial class MainWindow : Window
         {
             await HistoryStore.LogAsync(text, translated,
                 _translation.Settings.TargetLanguage, _translation.Settings.EngineName,
-                ShouldOverwriteLastLog(text));
+                ShouldOverwriteLastLog(text), token);
 
             _lastLoggedSentence = text;
             _lastLoggedWasComplete = CaptionSegmenter.IsComplete(text);
             _lastLoggedAtUtc = DateTime.UtcNow;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
